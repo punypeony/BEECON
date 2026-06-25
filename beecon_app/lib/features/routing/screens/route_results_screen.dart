@@ -4,7 +4,7 @@ import 'package:beecon_app/core/services/gemini_service.dart';
 import 'package:beecon_app/core/storage/ai_insight_storage.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
-import 'package:beecon_app/features/home/data/bgc_destinations.dart';
+import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/services/route_generator.dart';
 import 'package:flutter/material.dart';
@@ -39,7 +39,11 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
     _insightText = null;
   }
 
-  Future<void> _selectRoute(RouteModel route, BgcDestination destination) async {
+  Future<void> _selectRoute(
+    RouteModel route,
+    RouteLocation origin,
+    RouteLocation destination,
+  ) async {
     setState(() {
       _selectedRouteId = route.id;
       _insightLoading = true;
@@ -48,8 +52,8 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
 
     await HiveService.saveRoute(
       route,
-      originLabel: RouteGenerator.defaultOriginName,
-      destinationLabel: destination.name,
+      originLabel: origin.label,
+      destinationLabel: destination.label,
     );
 
     if (!mounted) return;
@@ -78,8 +82,8 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
         routeType: route.typeLabel,
         accessibilityScore: route.totalScore,
         warnings: route.warnings,
-        origin: RouteGenerator.defaultOriginName,
-        destination: destination.name,
+        origin: origin.label,
+        destination: destination.label,
       );
 
       await AiInsightStorage.saveInsight(
@@ -104,9 +108,16 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final origin = ref.watch(selectedOriginProvider);
     final destination = ref.watch(selectedDestinationProvider);
 
-    ref.listen<BgcDestination?>(selectedDestinationProvider, (previous, next) {
+    ref.listen<RouteLocation?>(selectedDestinationProvider, (previous, next) {
+      if (previous != next) {
+        setState(_resetRouteSelection);
+      }
+    });
+
+    ref.listen<RouteLocation?>(selectedOriginProvider, (previous, next) {
       if (previous != next) {
         setState(_resetRouteSelection);
       }
@@ -117,25 +128,27 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
         title: Text(
           destination == null
               ? 'Routes'
-              : 'Routes to ${destination.name}',
+              : 'Routes to ${destination.label}',
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
       ),
-      body: destination == null
-          ? _EmptyDestinationState()
+      body: destination == null || origin == null
+          ? const _EmptyDestinationState()
           : _RouteResultsBody(
+              origin: origin,
               destination: destination,
               selectedRouteId: _selectedRouteId,
               insightLoading: _insightLoading,
               insightText: _insightText,
               scoreBadgeColor: _scoreBadgeColor,
-              onSelectRoute: (route) => _selectRoute(route, destination),
+              onSelectRoute: (route) => _selectRoute(route, origin, destination),
             ),
     );
   }
 }
 
 class _EmptyDestinationState extends StatelessWidget {
+  const _EmptyDestinationState();
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -178,6 +191,7 @@ class _EmptyDestinationState extends StatelessWidget {
 
 class _RouteResultsBody extends StatelessWidget {
   const _RouteResultsBody({
+    required this.origin,
     required this.destination,
     required this.selectedRouteId,
     required this.insightLoading,
@@ -186,7 +200,8 @@ class _RouteResultsBody extends StatelessWidget {
     required this.onSelectRoute,
   });
 
-  final BgcDestination destination;
+  final RouteLocation origin;
+  final RouteLocation destination;
   final String? selectedRouteId;
   final bool insightLoading;
   final String? insightText;
@@ -195,13 +210,16 @@ class _RouteResultsBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final routes = RouteGenerator.generateBgcRoutes(destination);
+    final routes = RouteGenerator.generateBgcRoutes(
+      origin: origin,
+      destination: destination,
+    );
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          '${RouteGenerator.defaultOriginName} → ${destination.name}',
+          '${origin.label} → ${destination.label}',
           style: GoogleFonts.poppins(
             fontSize: 14,
             color: Colors.grey[600],

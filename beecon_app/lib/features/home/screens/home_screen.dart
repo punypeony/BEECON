@@ -1,17 +1,20 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/providers/destination_provider.dart';
+import 'package:beecon_app/core/services/ors_service.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/utils/time_utils.dart';
 import 'package:beecon_app/features/home/data/bgc_accessibility_data.dart';
-import 'package:beecon_app/features/home/data/bgc_destinations.dart';
 import 'package:beecon_app/features/home/screens/widgets/ai_insight_banner.dart';
+import 'package:beecon_app/features/home/screens/widgets/location_search_panel.dart';
 import 'package:beecon_app/features/reports/models/report_model.dart';
+import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:latlong2/latlong.dart';
@@ -26,56 +29,19 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final MapController _mapController = MapController();
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocusNode = FocusNode();
-
-  LatLng? _currentLocation;
-  LatLng? _destination;
+  final OrsService _orsService = OrsService();
   bool _locationLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_onSearchTextChanged);
     _initCurrentLocation();
   }
 
   @override
   void dispose() {
-    _searchController.removeListener(_onSearchTextChanged);
-    _searchController.dispose();
-    _searchFocusNode.dispose();
     _mapController.dispose();
     super.dispose();
-  }
-
-  void _onSearchTextChanged() {
-    final query = _searchController.text;
-    ref.read(searchQueryProvider.notifier).state = query;
-    ref.read(isDropdownVisibleProvider.notifier).state =
-        query.trim().isNotEmpty;
-  }
-
-  void _closeSuggestions() {
-    ref.read(isDropdownVisibleProvider.notifier).state = false;
-  }
-
-  void _clearSearch() {
-    _searchController.clear();
-    ref.read(searchQueryProvider.notifier).state = '';
-    ref.read(isDropdownVisibleProvider.notifier).state = false;
-    ref.read(selectedDestinationProvider.notifier).state = null;
-    setState(() => _destination = null);
-  }
-
-  void _selectDestination(BgcDestination destination) {
-    _searchController.text = destination.name;
-    ref.read(searchQueryProvider.notifier).state = destination.name;
-    ref.read(selectedDestinationProvider.notifier).state = destination;
-    ref.read(isDropdownVisibleProvider.notifier).state = false;
-    _searchFocusNode.unfocus();
-    setState(() => _destination = destination.position);
-    _mapController.move(destination.position, BgcMapData.defaultZoom);
   }
 
   Future<void> _initCurrentLocation() async {
@@ -110,44 +76,82 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
 
-      if (mounted) {
-        setState(() {
-          _currentLocation = LatLng(position.latitude, position.longitude);
-          _locationLoading = false;
-        });
+      if (!mounted) return;
+
+      final gps = LatLng(position.latitude, position.longitude);
+      ref.read(currentGpsLocationProvider.notifier).state = gps;
+
+      final origin = ref.read(selectedOriginProvider);
+      if (origin == null || origin.isCurrentLocation) {
+        ref.read(selectedOriginProvider.notifier).state =
+            RouteLocation.currentLocation(gps.latitude, gps.longitude);
       }
+
+      setState(() => _locationLoading = false);
     } catch (_) {
       if (mounted) setState(() => _locationLoading = false);
     }
   }
 
-  void _onMapTap(TapPosition tapPosition, LatLng point) {
-    _closeSuggestions();
-    _searchFocusNode.unfocus();
-    ref.read(selectedDestinationProvider.notifier).state = null;
-    setState(() => _destination = point);
-  }
+  void _refreshMapMarkers() {
+    final origin = ref.read(selectedOriginProvider);
+    final destination = ref.read(selectedDestinationProvider);
 
-  void _onSearchSubmitted(String query) {
-    final match = BgcDestinations.matchSubmitted(query);
-    if (match == null) {
-      ref.read(searchQueryProvider.notifier).state = query;
-      ref.read(isDropdownVisibleProvider.notifier).state = true;
-      final suggestions = ref.read(searchSuggestionsProvider);
-      if (suggestions.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'No BGC destinations found for "$query".',
-              style: GoogleFonts.poppins(),
-            ),
-          ),
-        );
-      }
-      return;
+    if (origin != null && destination != null) {
+      _fitMapToPoints([origin.position, destination.position]);
+    } else if (destination != null) {
+      _mapController.move(destination.position, BgcMapData.defaultZoom);
+    } else if (origin != null) {
+      _mapController.move(origin.position, BgcMapData.defaultZoom);
     }
 
-    _selectDestination(match);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _getRoutes() async {
+    final origin = ref.read(selectedOriginProvider);
+    final destination = ref.read(selectedDestinationProvider);
+    if (origin == null || destination == null) return;
+
+    final polyline = await _orsService.getRoute(
+      originLat: origin.lat,
+      originLng: origin.lng,
+      destLat: destination.lat,
+      destLng: destination.lng,
+    );
+
+    ref.read(routePolylineProvider.notifier).state = polyline;
+    _fitMapToPoints([origin.position, destination.position, ...polyline]);
+
+    if (!mounted) return;
+    context.go(AppConstants.routes);
+  }
+
+  void _fitMapToPoints(List<LatLng> points) {
+    if (points.isEmpty) return;
+
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+
+    for (final point in points) {
+      minLat = minLat < point.latitude ? minLat : point.latitude;
+      maxLat = maxLat > point.latitude ? maxLat : point.latitude;
+      minLng = minLng < point.longitude ? minLng : point.longitude;
+      maxLng = maxLng > point.longitude ? maxLng : point.longitude;
+    }
+
+    final bounds = LatLngBounds(
+      LatLng(minLat, minLng),
+      LatLng(maxLat, maxLng),
+    );
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: bounds,
+        padding: const EdgeInsets.all(48),
+      ),
+    );
   }
 
   void _showFeatureSheet(AccessibilityFeature feature) {
@@ -183,7 +187,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: BgcMapData.markerColorForType(feature.type)
                       .withValues(alpha: 0.15),
@@ -271,7 +276,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.verified, size: 14, color: Colors.green),
+                          const Icon(Icons.verified,
+                              size: 14, color: Colors.green),
                           const SizedBox(width: 4),
                           Text(
                             'Community Verified',
@@ -380,11 +386,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   shape: BoxShape.circle,
                 ),
               ),
-              const Icon(
-                Icons.warning,
-                color: Colors.red,
-                size: 28,
-              ),
+              const Icon(Icons.warning, color: Colors.red, size: 28),
             ],
           ),
         ),
@@ -392,16 +394,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }).toList();
   }
 
-  List<Marker> _buildOverlayMarkers(List<ReportModel> reports) {
-    final markers = <Marker>[
-      ..._buildAccessibilityMarkers(),
-      ..._buildReportMarkers(reports),
-    ];
+  List<Marker> _buildRouteMarkers(
+    RouteLocation? origin,
+    RouteLocation? destination,
+  ) {
+    final markers = <Marker>[];
 
-    if (_currentLocation != null) {
+    if (origin != null) {
       markers.add(
         Marker(
-          point: _currentLocation!,
+          point: origin.position,
           width: 22,
           height: 22,
           child: Container(
@@ -422,10 +424,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
-    if (_destination != null) {
+    if (destination != null) {
       markers.add(
         Marker(
-          point: _destination!,
+          point: destination.position,
           width: 44,
           height: 44,
           alignment: Alignment.topCenter,
@@ -441,11 +443,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return markers;
   }
 
+  List<Marker> _buildOverlayMarkers(
+    List<ReportModel> reports,
+    RouteLocation? origin,
+    RouteLocation? destination,
+  ) {
+    return [
+      ..._buildAccessibilityMarkers(),
+      ..._buildReportMarkers(reports),
+      ..._buildRouteMarkers(origin, destination),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
-    final query = ref.watch(searchQueryProvider);
-    final isDropdownVisible = ref.watch(isDropdownVisibleProvider);
-    final suggestions = ref.watch(searchSuggestionsProvider);
+    final origin = ref.watch(selectedOriginProvider);
+    final destination = ref.watch(selectedDestinationProvider);
+    final routePolyline = ref.watch(routePolylineProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -464,272 +478,120 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Stack(
-            clipBehavior: Clip.none,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSearchBar(query),
-                  const SizedBox(height: 12),
-                  GestureDetector(
-                    onTap: _closeSuggestions,
-                    behavior: HitTestBehavior.translucent,
-                    child: const AiInsightBanner(),
-                  ),
-                  const SizedBox(height: 4),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        _closeSuggestions();
-                        _searchFocusNode.unfocus();
-                      },
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: ValueListenableBuilder<Box<ReportModel>>(
-                          valueListenable: HiveService.reportsBox.listenable(),
-                          builder: (context, box, _) {
-                            final reports = HiveService.getAllReports();
-                            return Stack(
+              LocationSearchPanel(
+                onGetRoutes: _getRoutes,
+                onOriginChanged: _refreshMapMarkers,
+                onDestinationChanged: _refreshMapMarkers,
+              ),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () => closeLocationSearchDropdown(ref),
+                behavior: HitTestBehavior.translucent,
+                child: const AiInsightBanner(),
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => closeLocationSearchDropdown(ref),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: ValueListenableBuilder<Box<ReportModel>>(
+                      valueListenable: HiveService.reportsBox.listenable(),
+                      builder: (context, box, _) {
+                        final reports = HiveService.getAllReports();
+                        return Stack(
+                          children: [
+                            FlutterMap(
+                              mapController: _mapController,
+                              options: MapOptions(
+                                initialCenter: BgcMapData.center,
+                                initialZoom: BgcMapData.defaultZoom,
+                                interactionOptions: const InteractionOptions(
+                                  flags: InteractiveFlag.all,
+                                ),
+                              ),
                               children: [
-                                FlutterMap(
-                                  mapController: _mapController,
-                                  options: MapOptions(
-                                    initialCenter: BgcMapData.center,
-                                    initialZoom: BgcMapData.defaultZoom,
-                                    onTap: _onMapTap,
-                                    interactionOptions:
-                                        const InteractionOptions(
-                                      flags: InteractiveFlag.all,
-                                    ),
-                                  ),
-                                  children: [
-                                    TileLayer(
-                                      urlTemplate:
-                                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                      userAgentPackageName:
-                                          'com.beecon.beecon_app',
-                                    ),
-                                    PolygonLayer(
-                                      polygons: [
-                                        Polygon(
-                                          points: BgcMapData.boundaryPolygon,
-                                          color: BgcMapData.boundaryColor
-                                              .withValues(alpha: 0.3),
-                                          borderColor: BgcMapData.boundaryColor,
-                                          borderStrokeWidth: 2,
-                                        ),
-                                      ],
-                                    ),
-                                    MarkerLayer(
-                                      markers: _buildOverlayMarkers(reports),
+                                TileLayer(
+                                  urlTemplate:
+                                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                  userAgentPackageName: 'com.beecon.beecon_app',
+                                ),
+                                PolygonLayer(
+                                  polygons: [
+                                    Polygon(
+                                      points: BgcMapData.boundaryPolygon,
+                                      color: BgcMapData.boundaryColor
+                                          .withValues(alpha: 0.3),
+                                      borderColor: BgcMapData.boundaryColor,
+                                      borderStrokeWidth: 2,
                                     ),
                                   ],
                                 ),
-                                if (_locationLoading)
-                                  Positioned(
-                                    top: 12,
-                                    right: 12,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
+                                if (routePolyline.length >= 2)
+                                  PolylineLayer(
+                                    polylines: [
+                                      Polyline(
+                                        points: routePolyline,
+                                        color: AppColors.primary,
+                                        strokeWidth: 4,
                                       ),
-                                      decoration: BoxDecoration(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.9),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const SizedBox(
-                                            width: 14,
-                                            height: 14,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'Locating…',
-                                            style:
-                                                GoogleFonts.poppins(fontSize: 12),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                                    ],
                                   ),
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (isDropdownVisible && query.trim().isNotEmpty)
-                Positioned(
-                  top: 54,
-                  left: 0,
-                  right: 0,
-                  child: _DestinationSuggestionsDropdown(
-                    suggestions: suggestions,
-                    onSelect: _selectDestination,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchBar(String query) {
-    return Container(
-      height: 50,
-      decoration: BoxDecoration(
-        color: AppColors.accent,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE0E0E0)),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 12),
-          const Icon(Icons.search, color: Colors.grey),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              style: GoogleFonts.poppins(fontSize: 14),
-              decoration: InputDecoration(
-                hintText: 'Search destination…',
-                hintStyle: GoogleFonts.poppins(
-                  color: Colors.grey[500],
-                  fontSize: 14,
-                ),
-                border: InputBorder.none,
-                isDense: true,
-              ),
-              textInputAction: TextInputAction.search,
-              onSubmitted: _onSearchSubmitted,
-              onTap: () {
-                if (_searchController.text.trim().isNotEmpty) {
-                  ref.read(isDropdownVisibleProvider.notifier).state = true;
-                }
-              },
-            ),
-          ),
-          if (query.isNotEmpty)
-            IconButton(
-              icon: Icon(Icons.close, color: Colors.grey[600]),
-              onPressed: _clearSearch,
-              tooltip: 'Clear',
-            ),
-          IconButton(
-            icon: const Icon(Icons.arrow_forward, color: AppColors.primary),
-            onPressed: () => _onSearchSubmitted(_searchController.text),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DestinationSuggestionsDropdown extends StatelessWidget {
-  const _DestinationSuggestionsDropdown({
-    required this.suggestions,
-    required this.onSelect,
-  });
-
-  final List<BgcDestination> suggestions;
-  final ValueChanged<BgcDestination> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      elevation: 8,
-      borderRadius: BorderRadius.circular(12),
-      color: Colors.white,
-      child: suggestions.isEmpty
-          ? Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'No BGC destinations found',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
-              ),
-            )
-          : ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 280),
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                itemCount: suggestions.length,
-                separatorBuilder: (context, index) => Divider(
-                  height: 1,
-                  color: Colors.grey[200],
-                ),
-                itemBuilder: (context, index) {
-                  final destination = suggestions[index];
-                  return InkWell(
-                    onTap: () => onSelect(destination),
-                    borderRadius: BorderRadius.vertical(
-                      top: index == 0
-                          ? const Radius.circular(12)
-                          : Radius.zero,
-                      bottom: index == suggestions.length - 1
-                          ? const Radius.circular(12)
-                          : Radius.zero,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.location_on_outlined,
-                            color: AppColors.primary,
-                            size: 22,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  destination.name,
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  destination.address,
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                    height: 1.3,
+                                MarkerLayer(
+                                  markers: _buildOverlayMarkers(
+                                    reports,
+                                    origin,
+                                    destination,
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                        ],
-                      ),
+                            if (_locationLoading)
+                              Positioned(
+                                top: 12,
+                                right: 12,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Locating…',
+                                        style: GoogleFonts.poppins(fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
-            ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
