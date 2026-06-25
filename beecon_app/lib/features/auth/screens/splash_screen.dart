@@ -25,7 +25,7 @@ class _SplashScreenState extends State<SplashScreen> {
       body: Center(
         child: Image.asset(
           AppConstants.logoPath,
-          width: 220,
+          width: 320,
           fit: BoxFit.contain,
         ),
       ),

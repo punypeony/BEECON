@@ -28,7 +28,7 @@ class ProfileSelectScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Image.asset(AppConstants.logoPath, height: 32, fit: BoxFit.contain),
+        title: Image.asset(AppConstants.logoPath, height: 48, fit: BoxFit.contain),
       ),
       body: SafeArea(
         child: Padding(

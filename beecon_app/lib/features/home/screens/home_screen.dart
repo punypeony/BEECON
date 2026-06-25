@@ -12,7 +12,7 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: Image.asset(
           AppConstants.logoPath,
-          height: 32,
+          height: 48,
           fit: BoxFit.contain,
         ),
         actions: [
