@@ -1,9 +1,13 @@
+import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/services/gemini_service.dart';
+import 'package:beecon_app/core/storage/ai_insight_storage.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/services/route_generator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class RouteResultsScreen extends StatefulWidget {
   const RouteResultsScreen({super.key});
@@ -13,8 +17,15 @@ class RouteResultsScreen extends StatefulWidget {
 }
 
 class _RouteResultsScreenState extends State<RouteResultsScreen> {
+  static const _origin = 'High Street';
+  static const _destination = 'SM Aura';
+
   late final List<RouteModel> _routes;
+  final GeminiService _geminiService = GeminiService();
+
   String? _selectedRouteId;
+  bool _insightLoading = false;
+  String? _insightText;
 
   @override
   void initState() {
@@ -28,10 +39,21 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
     return Colors.red;
   }
 
-  void _selectRoute(RouteModel route) async {
-    setState(() => _selectedRouteId = route.id);
-    await HiveService.saveRoute(route);
+  Future<void> _selectRoute(RouteModel route) async {
+    setState(() {
+      _selectedRouteId = route.id;
+      _insightLoading = true;
+      _insightText = null;
+    });
+
+    await HiveService.saveRoute(
+      route,
+      originLabel: _origin,
+      destinationLabel: _destination,
+    );
+
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -40,6 +62,44 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
         ),
       ),
     );
+
+    final prefs = await SharedPreferences.getInstance();
+    final mobilityProfile =
+        prefs.getString(AppConstants.selectedProfileKey) ?? 'General';
+
+    try {
+      final hasConnection = await HiveService.hasConnectivity();
+      if (!hasConnection) {
+        throw Exception('No internet connection');
+      }
+
+      final insight = await _geminiService.getAccessibilityInsight(
+        mobilityProfile: mobilityProfile,
+        routeType: route.typeLabel,
+        accessibilityScore: route.totalScore,
+        warnings: route.warnings,
+        origin: _origin,
+        destination: _destination,
+      );
+
+      await AiInsightStorage.saveInsight(
+        routeId: route.id,
+        insight: insight,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _insightText = insight;
+        _insightLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _insightText =
+            'Unable to load AI insight. Score: ${route.totalScore}/100';
+        _insightLoading = false;
+      });
+    }
   }
 
   @override
@@ -55,7 +115,7 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'High Street → SM Aura',
+            '$_origin → $_destination',
             style: GoogleFonts.poppins(
               fontSize: 14,
               color: Colors.grey[600],
@@ -70,12 +130,17 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          ..._routes.map((route) => _RouteCard(
-                route: route,
-                isSelected: _selectedRouteId == route.id,
-                badgeColor: _scoreBadgeColor(route.totalScore),
-                onSelect: () => _selectRoute(route),
-              )),
+          ..._routes.map(
+            (route) => _RouteCard(
+              route: route,
+              isSelected: _selectedRouteId == route.id,
+              badgeColor: _scoreBadgeColor(route.totalScore),
+              insightLoading:
+                  _selectedRouteId == route.id && _insightLoading,
+              insightText: _selectedRouteId == route.id ? _insightText : null,
+              onSelect: () => _selectRoute(route),
+            ),
+          ),
         ],
       ),
     );
@@ -88,12 +153,16 @@ class _RouteCard extends StatelessWidget {
     required this.isSelected,
     required this.badgeColor,
     required this.onSelect,
+    this.insightLoading = false,
+    this.insightText,
   });
 
   final RouteModel route;
   final bool isSelected;
   final Color badgeColor;
   final VoidCallback onSelect;
+  final bool insightLoading;
+  final String? insightText;
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +270,36 @@ class _RouteCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (isSelected && insightLoading) ...[
+              const SizedBox(height: 16),
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Generating AI insight…',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (isSelected && insightText != null) ...[
+              const SizedBox(height: 16),
+              _AiInsightCard(text: insightText!),
+            ],
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -209,6 +308,81 @@ class _RouteCard extends StatelessWidget {
                 child: Text(
                   isSelected ? 'Selected' : 'Select Route',
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AiInsightCard extends StatelessWidget {
+  const _AiInsightCard({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.accent,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 4,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(12),
+                ),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Image.asset(
+                      AppConstants.logoPath,
+                      width: 24,
+                      height: 24,
+                      fit: BoxFit.contain,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'AI Accessibility Insight',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            text,
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              height: 1.5,
+                              color: Colors.grey[800],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

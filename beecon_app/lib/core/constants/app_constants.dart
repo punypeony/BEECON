@@ -4,6 +4,9 @@ class AppConstants {
 
   // SharedPreferences keys
   static const String selectedProfileKey = 'selected_mobility_profile';
+  static const String lastAiInsightKey = 'last_ai_insight';
+  static const String lastAiInsightRouteIdKey = 'last_ai_insight_route_id';
+  static const String aiInsightBannerDismissedKey = 'ai_insight_banner_dismissed';
 
   // Route names
   static const String splash = '/';

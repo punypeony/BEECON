@@ -3,6 +3,7 @@ import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/utils/time_utils.dart';
 import 'package:beecon_app/features/home/data/bgc_accessibility_data.dart';
+import 'package:beecon_app/features/home/screens/widgets/ai_insight_banner.dart';
 import 'package:beecon_app/features/reports/models/report_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -456,7 +457,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              const AiInsightBanner(),
+              const SizedBox(height: 4),
               Expanded(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
