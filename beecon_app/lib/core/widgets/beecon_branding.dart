@@ -31,7 +31,6 @@ class BeeconLogoHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         Image.asset(
           AppConstants.logoPath,
@@ -43,6 +42,7 @@ class BeeconLogoHeader extends StatelessWidget {
           child: Text(
             title,
             overflow: TextOverflow.ellipsis,
+            maxLines: 1,
             style: GoogleFonts.poppins(
               fontSize: titleFontSize,
               fontWeight: FontWeight.w700,
@@ -63,24 +63,36 @@ class BeeconAppBarTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Image.asset(
-          AppConstants.logoPath,
-          height: logoHeight,
-          fit: BoxFit.contain,
-        ),
-        const SizedBox(width: 10),
-        Text(
-          'Beecon',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showWordmark = constraints.maxWidth >= 130;
+
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                AppConstants.logoPath,
+                height: logoHeight,
+                fit: BoxFit.contain,
+              ),
+              if (showWordmark) ...[
+                const SizedBox(width: 8),
+                Text(
+                  'Beecon',
+                  style: GoogleFonts.poppins(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
