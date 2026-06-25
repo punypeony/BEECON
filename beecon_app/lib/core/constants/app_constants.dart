@@ -13,4 +13,5 @@ class AppConstants {
   static const String routes = '/routes';
   static const String report = '/report';
   static const String profile = '/profile';
+  static const String savedLocations = '/saved-locations';
 }

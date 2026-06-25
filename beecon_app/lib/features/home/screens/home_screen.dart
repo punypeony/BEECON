@@ -1,11 +1,15 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/utils/time_utils.dart';
 import 'package:beecon_app/features/home/data/bgc_accessibility_data.dart';
+import 'package:beecon_app/features/reports/models/report_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -175,6 +179,116 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showReportSheet(ReportModel report) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      report.reportType,
+                      style: GoogleFonts.poppins(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (report.upvotes >= 3)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.verified, size: 14, color: Colors.green),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Community Verified',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                formatTimeAgo(report.timestamp),
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                report.description,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: Colors.grey[800],
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await HiveService.upvoteReport(report);
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.thumb_up_outlined),
+                  label: Text(
+                    'Upvote (${report.upvotes})',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   List<Marker> _buildAccessibilityMarkers() {
     return BgcMapData.accessibilityFeatures.map((feature) {
       final color = BgcMapData.markerColorForType(feature.type);
@@ -203,8 +317,42 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
   }
 
-  List<Marker> _buildOverlayMarkers() {
-    final markers = <Marker>[..._buildAccessibilityMarkers()];
+  List<Marker> _buildReportMarkers(List<ReportModel> reports) {
+    return reports.map((report) {
+      return Marker(
+        point: LatLng(report.lat, report.lng),
+        width: 32,
+        height: 32,
+        child: GestureDetector(
+          onTap: () => _showReportSheet(report),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const Icon(
+                Icons.warning,
+                color: Colors.red,
+                size: 28,
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  List<Marker> _buildOverlayMarkers(List<ReportModel> reports) {
+    final markers = <Marker>[
+      ..._buildAccessibilityMarkers(),
+      ..._buildReportMarkers(reports),
+    ];
 
     if (_currentLocation != null) {
       markers.add(
@@ -312,71 +460,79 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    children: [
-                      FlutterMap(
-                        mapController: _mapController,
-                        options: MapOptions(
-                          initialCenter: BgcMapData.center,
-                          initialZoom: BgcMapData.defaultZoom,
-                          onTap: _onMapTap,
-                          interactionOptions: const InteractionOptions(
-                            flags: InteractiveFlag.all,
-                          ),
-                        ),
+                  child: ValueListenableBuilder<Box<ReportModel>>(
+                    valueListenable: HiveService.reportsBox.listenable(),
+                    builder: (context, box, _) {
+                      final reports = HiveService.getAllReports();
+                      return Stack(
                         children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.beecon.beecon_app',
-                          ),
-                          PolygonLayer(
-                            polygons: [
-                              Polygon(
-                                points: BgcMapData.boundaryPolygon,
-                                color: BgcMapData.boundaryColor
-                                    .withValues(alpha: 0.3),
-                                borderColor: BgcMapData.boundaryColor,
-                                borderStrokeWidth: 2,
+                          FlutterMap(
+                            mapController: _mapController,
+                            options: MapOptions(
+                              initialCenter: BgcMapData.center,
+                              initialZoom: BgcMapData.defaultZoom,
+                              onTap: _onMapTap,
+                              interactionOptions: const InteractionOptions(
+                                flags: InteractiveFlag.all,
+                              ),
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate:
+                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'com.beecon.beecon_app',
+                              ),
+                              PolygonLayer(
+                                polygons: [
+                                  Polygon(
+                                    points: BgcMapData.boundaryPolygon,
+                                    color: BgcMapData.boundaryColor
+                                        .withValues(alpha: 0.3),
+                                    borderColor: BgcMapData.boundaryColor,
+                                    borderStrokeWidth: 2,
+                                  ),
+                                ],
+                              ),
+                              MarkerLayer(
+                                markers: _buildOverlayMarkers(reports),
                               ),
                             ],
                           ),
-                          MarkerLayer(markers: _buildOverlayMarkers()),
+                          if (_locationLoading)
+                            Positioned(
+                              top: 12,
+                              right: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Locating…',
+                                      style: GoogleFonts.poppins(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                         ],
-                      ),
-                      if (_locationLoading)
-                        Positioned(
-                          top: 12,
-                          right: 12,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Locating…',
-                                  style: GoogleFonts.poppins(fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
+                      );
+                    },
                   ),
                 ),
               ),

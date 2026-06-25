@@ -8,6 +8,7 @@ import 'package:beecon_app/features/home/screens/home_screen.dart';
 import 'package:beecon_app/features/routing/screens/route_results_screen.dart';
 import 'package:beecon_app/features/reports/screens/report_screen.dart';
 import 'package:beecon_app/features/profile/screens/profile_screen.dart';
+import 'package:beecon_app/features/profile/screens/saved_locations_screen.dart';
 
 final appRouter = GoRouter(
   initialLocation: AppConstants.splash,
@@ -44,6 +45,10 @@ final appRouter = GoRouter(
           builder: (context, state) => const ProfileScreen(),
         ),
       ],
+    ),
+    GoRoute(
+      path: AppConstants.savedLocations,
+      builder: (context, state) => const SavedLocationsScreen(),
     ),
   ],
 );

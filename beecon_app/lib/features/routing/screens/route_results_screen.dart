@@ -1,3 +1,4 @@
+import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/services/route_generator.dart';
@@ -27,8 +28,10 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
     return Colors.red;
   }
 
-  void _selectRoute(RouteModel route) {
+  void _selectRoute(RouteModel route) async {
     setState(() => _selectedRouteId = route.id);
+    await HiveService.saveRoute(route);
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

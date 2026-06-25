@@ -96,6 +96,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.bookmark_outline),
+                  label: const Text('Saved Locations'),
+                  onPressed: () =>
+                      context.push(AppConstants.savedLocations),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.secondary,
+                    side: const BorderSide(color: Color(0xFFE0E0E0)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Change Profile'),
