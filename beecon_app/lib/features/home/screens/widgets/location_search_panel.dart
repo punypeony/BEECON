@@ -142,7 +142,7 @@ class _LocationSearchPanelState extends ConsumerState<LocationSearchPanel> {
     _destinationController.clear();
     ref.read(destinationSearchQueryProvider.notifier).state = '';
     ref.read(selectedDestinationProvider.notifier).state = null;
-    ref.read(routePolylineProvider.notifier).state = [];
+    ref.read(routePolylinesProvider.notifier).state = null;
     widget.onDestinationChanged();
   }
 
@@ -163,7 +163,7 @@ class _LocationSearchPanelState extends ConsumerState<LocationSearchPanel> {
     ref.read(originSearchQueryProvider.notifier).state = _originController.text;
     ref.read(destinationSearchQueryProvider.notifier).state =
         _destinationController.text;
-    ref.read(routePolylineProvider.notifier).state = [];
+    ref.read(routePolylinesProvider.notifier).state = null;
 
     widget.onOriginChanged();
     widget.onDestinationChanged();

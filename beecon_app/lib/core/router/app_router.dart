@@ -10,45 +10,71 @@ import 'package:beecon_app/features/reports/screens/report_screen.dart';
 import 'package:beecon_app/features/profile/screens/profile_screen.dart';
 import 'package:beecon_app/features/profile/screens/saved_locations_screen.dart';
 
+CustomTransitionPage<void> _slidePage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 280),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final slide = Tween<Offset>(
+        begin: const Offset(0.04, 0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+      return FadeTransition(
+        opacity: animation,
+        child: SlideTransition(position: slide, child: child),
+      );
+    },
+  );
+}
+
 final appRouter = GoRouter(
   initialLocation: AppConstants.splash,
   routes: [
     GoRoute(
       path: AppConstants.splash,
-      builder: (context, state) => const SplashScreen(),
+      pageBuilder: (context, state) =>
+          _slidePage(state, const SplashScreen()),
     ),
     GoRoute(
       path: AppConstants.onboarding,
-      builder: (context, state) => const OnboardingScreen(),
+      pageBuilder: (context, state) =>
+          _slidePage(state, const OnboardingScreen()),
     ),
     GoRoute(
       path: AppConstants.profileSelect,
-      builder: (context, state) => const ProfileSelectScreen(),
+      pageBuilder: (context, state) =>
+          _slidePage(state, const ProfileSelectScreen()),
     ),
     ShellRoute(
       builder: (context, state, child) => HomeShell(child: child),
       routes: [
         GoRoute(
           path: AppConstants.home,
-          builder: (context, state) => const HomeScreen(),
+          pageBuilder: (context, state) =>
+              _slidePage(state, const HomeScreen()),
         ),
         GoRoute(
           path: AppConstants.routes,
-          builder: (context, state) => const RouteResultsScreen(),
+          pageBuilder: (context, state) =>
+              _slidePage(state, const RouteResultsScreen()),
         ),
         GoRoute(
           path: AppConstants.report,
-          builder: (context, state) => const ReportScreen(),
+          pageBuilder: (context, state) =>
+              _slidePage(state, const ReportScreen()),
         ),
         GoRoute(
           path: AppConstants.profile,
-          builder: (context, state) => const ProfileScreen(),
+          pageBuilder: (context, state) =>
+              _slidePage(state, const ProfileScreen()),
         ),
       ],
     ),
     GoRoute(
       path: AppConstants.savedLocations,
-      builder: (context, state) => const SavedLocationsScreen(),
+      pageBuilder: (context, state) =>
+          _slidePage(state, const SavedLocationsScreen()),
     ),
   ],
 );
@@ -86,10 +112,26 @@ class HomeShell extends StatelessWidget {
           }
         },
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.route_outlined), selectedIcon: Icon(Icons.route), label: 'Routes'),
-          NavigationDestination(icon: Icon(Icons.report_outlined), selectedIcon: Icon(Icons.report), label: 'Report'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.route_outlined),
+            selectedIcon: Icon(Icons.route),
+            label: 'Routes',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.report_outlined),
+            selectedIcon: Icon(Icons.report),
+            label: 'Report',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
         ],
       ),
     );

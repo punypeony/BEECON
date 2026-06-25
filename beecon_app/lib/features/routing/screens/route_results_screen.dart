@@ -9,8 +9,10 @@ import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/services/route_generator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shimmer/shimmer.dart';
 
 class RouteResultsScreen extends ConsumerStatefulWidget {
   const RouteResultsScreen({super.key});
@@ -49,6 +51,8 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
       _insightLoading = true;
       _insightText = null;
     });
+
+    ref.read(highlightedRouteTypeProvider.notifier).state = route.type;
 
     await HiveService.saveRoute(
       route,
@@ -142,6 +146,11 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
               insightText: _insightText,
               scoreBadgeColor: _scoreBadgeColor,
               onSelectRoute: (route) => _selectRoute(route, origin, destination),
+              onViewOnMap: (route) {
+                ref.read(highlightedRouteTypeProvider.notifier).state =
+                    route.type;
+                context.go(AppConstants.home);
+              },
             ),
     );
   }
@@ -198,6 +207,7 @@ class _RouteResultsBody extends StatelessWidget {
     required this.insightText,
     required this.scoreBadgeColor,
     required this.onSelectRoute,
+    required this.onViewOnMap,
   });
 
   final RouteLocation origin;
@@ -207,6 +217,7 @@ class _RouteResultsBody extends StatelessWidget {
   final String? insightText;
   final Color Function(int score) scoreBadgeColor;
   final ValueChanged<RouteModel> onSelectRoute;
+  final ValueChanged<RouteModel> onViewOnMap;
 
   @override
   Widget build(BuildContext context) {
@@ -242,6 +253,7 @@ class _RouteResultsBody extends StatelessWidget {
             insightLoading: selectedRouteId == route.id && insightLoading,
             insightText: selectedRouteId == route.id ? insightText : null,
             onSelect: () => onSelectRoute(route),
+            onViewOnMap: () => onViewOnMap(route),
           ),
         ),
       ],
@@ -255,6 +267,7 @@ class _RouteCard extends StatelessWidget {
     required this.isSelected,
     required this.badgeColor,
     required this.onSelect,
+    required this.onViewOnMap,
     this.insightLoading = false,
     this.insightText,
   });
@@ -263,6 +276,7 @@ class _RouteCard extends StatelessWidget {
   final bool isSelected;
   final Color badgeColor;
   final VoidCallback onSelect;
+  final VoidCallback onViewOnMap;
   final bool insightLoading;
   final String? insightText;
 
@@ -380,35 +394,33 @@ class _RouteCard extends StatelessWidget {
             ],
             if (isSelected && insightLoading) ...[
               const SizedBox(height: 16),
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Generating AI insight…',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              const _InsightShimmer(),
             ],
             if (isSelected && insightText != null) ...[
               const SizedBox(height: 16),
               _AiInsightCard(text: insightText!),
             ],
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onViewOnMap,
+                icon: const Icon(Icons.map_outlined),
+                label: Text(
+                  'View on Map',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -417,6 +429,57 @@ class _RouteCard extends StatelessWidget {
                   isSelected ? 'Selected' : 'Select Route',
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InsightShimmer extends StatelessWidget {
+  const _InsightShimmer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.accent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 14,
+              width: 160,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              height: 12,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              height: 12,
+              width: 220,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
               ),
             ),
           ],

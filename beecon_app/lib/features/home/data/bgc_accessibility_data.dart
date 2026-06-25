@@ -34,6 +34,21 @@ class BgcMapData {
 
   static const LatLng center = LatLng(14.5547, 121.0507);
   static const double defaultZoom = 15;
+  static const double minZoom = 14;
+  static const double maxZoom = 19;
+
+  /// Locked map bounds for BGC coverage area.
+  static const double boundsSouthWestLat = 14.5280;
+  static const double boundsSouthWestLng = 121.0380;
+  static const double boundsNorthEastLat = 14.5750;
+  static const double boundsNorthEastLng = 121.0650;
+
+  static bool isWithinBounds(LatLng point) {
+    return point.latitude >= boundsSouthWestLat &&
+        point.latitude <= boundsNorthEastLat &&
+        point.longitude >= boundsSouthWestLng &&
+        point.longitude <= boundsNorthEastLng;
+  }
 
   static const Color boundaryColor = Color(0xFFFF8A00);
 
@@ -165,6 +180,19 @@ class BgcMapData {
     'bonifacio stopover': LatLng(14.5586, 121.0478),
     'stopover': LatLng(14.5586, 121.0478),
   };
+
+  static Color heatmapColorForType(AccessibilityFeatureType type) {
+    switch (type) {
+      case AccessibilityFeatureType.ramp:
+      case AccessibilityFeatureType.elevator:
+      case AccessibilityFeatureType.tactile:
+        return const Color(0xFF4CAF50);
+      case AccessibilityFeatureType.construction:
+        return const Color(0xFFFF8A00);
+      case AccessibilityFeatureType.stairs:
+        return const Color(0xFFF44336);
+    }
+  }
 
   static Color markerColorForType(AccessibilityFeatureType type) {
     switch (type) {

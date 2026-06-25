@@ -6,9 +6,14 @@ import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/utils/time_utils.dart';
 import 'package:beecon_app/features/home/data/bgc_accessibility_data.dart';
 import 'package:beecon_app/features/home/screens/widgets/ai_insight_banner.dart';
+import 'package:beecon_app/features/home/screens/widgets/emergency_sheet.dart';
+import 'package:beecon_app/features/home/screens/widgets/heatmap_legend.dart';
+import 'package:beecon_app/features/home/screens/widgets/how_it_works_sheet.dart';
 import 'package:beecon_app/features/home/screens/widgets/location_search_panel.dart';
 import 'package:beecon_app/features/reports/models/report_model.dart';
 import 'package:beecon_app/features/routing/models/route_location.dart';
+import 'package:beecon_app/features/routing/models/route_model.dart';
+import 'package:beecon_app/features/routing/models/route_polylines.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -36,6 +41,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _initCurrentLocation();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mapController.move(BgcMapData.center, BgcMapData.defaultZoom);
+    });
   }
 
   @override
@@ -93,11 +101,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  void _onMapEvent(MapEvent event) {
+    if (event is MapEventMoveEnd) {
+      final center = _mapController.camera.center;
+      if (!BgcMapData.isWithinBounds(center)) {
+        _mapController.move(
+          BgcMapData.center,
+          _mapController.camera.zoom.clamp(
+            BgcMapData.minZoom,
+            BgcMapData.maxZoom,
+          ),
+        );
+      }
+    }
+  }
+
   void _refreshMapMarkers() {
     final origin = ref.read(selectedOriginProvider);
     final destination = ref.read(selectedDestinationProvider);
+    final polylines = ref.read(routePolylinesProvider);
 
-    if (origin != null && destination != null) {
+    if (polylines != null) {
+      _fitMapToPoints([
+        if (origin != null) origin.position,
+        if (destination != null) destination.position,
+        ...polylines.fastest,
+      ]);
+    } else if (origin != null && destination != null) {
       _fitMapToPoints([origin.position, destination.position]);
     } else if (destination != null) {
       _mapController.move(destination.position, BgcMapData.defaultZoom);
@@ -113,15 +143,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final destination = ref.read(selectedDestinationProvider);
     if (origin == null || destination == null) return;
 
-    final polyline = await _orsService.getRoute(
-      originLat: origin.lat,
-      originLng: origin.lng,
-      destLat: destination.lat,
-      destLng: destination.lng,
+    ref.read(routesLoadingProvider.notifier).state = true;
+
+    final polylines = await _orsService.getAllRoutes(
+      origin.lat,
+      origin.lng,
+      destination.lat,
+      destination.lng,
     );
 
-    ref.read(routePolylineProvider.notifier).state = polyline;
-    _fitMapToPoints([origin.position, destination.position, ...polyline]);
+    ref.read(routePolylinesProvider.notifier).state = polylines;
+    ref.read(highlightedRouteTypeProvider.notifier).state = null;
+    ref.read(routesLoadingProvider.notifier).state = false;
+
+    _fitMapToPoints([
+      origin.position,
+      destination.position,
+      ...polylines.fastest,
+      ...polylines.accessible,
+      ...polylines.balanced,
+    ]);
 
     if (!mounted) return;
     context.go(AppConstants.routes);
@@ -142,16 +183,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       maxLng = maxLng > point.longitude ? maxLng : point.longitude;
     }
 
-    final bounds = LatLngBounds(
-      LatLng(minLat, minLng),
-      LatLng(maxLat, maxLng),
-    );
-    _mapController.fitCamera(
-      CameraFit.bounds(
-        bounds: bounds,
-        padding: const EdgeInsets.all(48),
+    final constrained = LatLngBounds(
+      LatLng(
+        minLat.clamp(BgcMapData.boundsSouthWestLat, BgcMapData.boundsNorthEastLat),
+        minLng.clamp(BgcMapData.boundsSouthWestLng, BgcMapData.boundsNorthEastLng),
+      ),
+      LatLng(
+        maxLat.clamp(BgcMapData.boundsSouthWestLat, BgcMapData.boundsNorthEastLat),
+        maxLng.clamp(BgcMapData.boundsSouthWestLng, BgcMapData.boundsNorthEastLng),
       ),
     );
+
+    _mapController.fitCamera(
+      CameraFit.bounds(bounds: constrained, padding: const EdgeInsets.all(48)),
+    );
+  }
+
+  List<Polyline> _buildRoutePolylines(
+    RoutePolylines? polylines,
+    RouteType? highlighted,
+  ) {
+    if (polylines == null) return [];
+
+    return RouteType.values.map((type) {
+      final points = polylines.forType(type);
+      if (points.length < 2) return null;
+
+      final isHighlighted = highlighted == null || highlighted == type;
+      return Polyline(
+        points: points,
+        color: RoutePolylines.colorForType(type).withValues(
+          alpha: isHighlighted ? 1.0 : 0.4,
+        ),
+        strokeWidth: highlighted == type ? 7.0 : 5.0,
+      );
+    }).whereType<Polyline>().toList();
+  }
+
+  List<CircleMarker> _buildHeatmapCircles() {
+    return BgcMapData.accessibilityFeatures.map((feature) {
+      return CircleMarker(
+        point: feature.position,
+        radius: 80,
+        useRadiusInMeter: true,
+        color: BgcMapData.heatmapColorForType(feature.type)
+            .withValues(alpha: 0.3),
+        borderColor: Colors.transparent,
+      );
+    }).toList();
   }
 
   void _showFeatureSheet(AccessibilityFeature feature) {
@@ -160,71 +239,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                feature.name,
-                style: GoogleFonts.poppins(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: BgcMapData.markerColorForType(feature.type)
-                      .withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  BgcMapData.typeLabel(feature.type),
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: BgcMapData.markerColorForType(feature.type),
-                  ),
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                'Accessibility tip',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              feature.name,
+              style: GoogleFonts.poppins(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
               ),
-              const SizedBox(height: 6),
-              Text(
-                feature.accessibilityTip,
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  height: 1.5,
-                  color: Colors.grey[800],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              feature.accessibilityTip,
+              style: GoogleFonts.poppins(fontSize: 14, height: 1.5),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -234,108 +280,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              report.reportType,
+              style: GoogleFonts.poppins(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
               ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      report.reportType,
-                      style: GoogleFonts.poppins(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  if (report.upvotes >= 3)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.verified,
-                              size: 14, color: Colors.green),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Community Verified',
-                            style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                formatTimeAgo(report.timestamp),
-                style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                report.description,
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  height: 1.5,
-                  color: Colors.grey[800],
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    await HiveService.upvoteReport(report);
-                    if (context.mounted) Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.thumb_up_outlined),
-                  label: Text(
-                    'Upvote (${report.upvotes})',
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side: const BorderSide(color: AppColors.primary),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+            ),
+            const SizedBox(height: 8),
+            Text(formatTimeAgo(report.timestamp),
+                style: GoogleFonts.poppins(color: Colors.grey[600])),
+            const SizedBox(height: 12),
+            Text(report.description,
+                style: GoogleFonts.poppins(height: 1.5)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -353,13 +319,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               color: color,
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 2),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 4,
-                  offset: Offset(0, 1),
-                ),
-              ],
             ),
           ),
         ),
@@ -368,30 +327,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   List<Marker> _buildReportMarkers(List<ReportModel> reports) {
-    return reports.map((report) {
-      return Marker(
-        point: LatLng(report.lat, report.lng),
-        width: 32,
-        height: 32,
-        child: GestureDetector(
-          onTap: () => _showReportSheet(report),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const Icon(Icons.warning, color: Colors.red, size: 28),
-            ],
+    return reports
+        .map(
+          (report) => Marker(
+            point: LatLng(report.lat, report.lng),
+            width: 32,
+            height: 32,
+            child: GestureDetector(
+              onTap: () => _showReportSheet(report),
+              child: const Icon(Icons.warning, color: Colors.red, size: 28),
+            ),
           ),
-        ),
-      );
-    }).toList();
+        )
+        .toList();
   }
 
   List<Marker> _buildRouteMarkers(
@@ -399,7 +347,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     RouteLocation? destination,
   ) {
     final markers = <Marker>[];
-
     if (origin != null) {
       markers.add(
         Marker(
@@ -411,19 +358,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               color: Colors.blue,
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 3),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 4,
-                  offset: Offset(0, 1),
-                ),
-              ],
             ),
           ),
         ),
       );
     }
-
     if (destination != null) {
       markers.add(
         Marker(
@@ -439,27 +378,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
     }
-
     return markers;
-  }
-
-  List<Marker> _buildOverlayMarkers(
-    List<ReportModel> reports,
-    RouteLocation? origin,
-    RouteLocation? destination,
-  ) {
-    return [
-      ..._buildAccessibilityMarkers(),
-      ..._buildReportMarkers(reports),
-      ..._buildRouteMarkers(origin, destination),
-    ];
   }
 
   @override
   Widget build(BuildContext context) {
     final origin = ref.watch(selectedOriginProvider);
     final destination = ref.watch(selectedDestinationProvider);
-    final routePolyline = ref.watch(routePolylineProvider);
+    final polylines = ref.watch(routePolylinesProvider);
+    final highlighted = ref.watch(highlightedRouteTypeProvider);
+    final heatmapOn = ref.watch(heatmapEnabledProvider);
+    final routesLoading = ref.watch(routesLoadingProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -470,11 +399,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
+            icon: const Icon(Icons.help_outline),
+            tooltip: 'How it works',
+            onPressed: () => showHowItWorksSheet(context),
+          ),
+          IconButton(
+            icon: Icon(
+              heatmapOn ? Icons.layers : Icons.layers_outlined,
+              color: heatmapOn ? AppColors.primary : null,
+            ),
+            tooltip: 'Heatmap',
+            onPressed: () {
+              ref.read(heatmapEnabledProvider.notifier).state = !heatmapOn;
+            },
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'emergency',
+        backgroundColor: Colors.red,
+        onPressed: () => showEmergencySheet(context, ref),
+        child: const Icon(Icons.shield, color: Colors.white),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -482,10 +429,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               LocationSearchPanel(
-                onGetRoutes: _getRoutes,
+                onGetRoutes: routesLoading ? () {} : _getRoutes,
                 onOriginChanged: _refreshMapMarkers,
                 onDestinationChanged: _refreshMapMarkers,
               ),
+              if (routesLoading)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: LinearProgressIndicator(
+                    color: AppColors.primary,
+                    backgroundColor: AppColors.accent,
+                  ),
+                ),
               const SizedBox(height: 12),
               GestureDetector(
                 onTap: () => closeLocationSearchDropdown(ref),
@@ -509,6 +464,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               options: MapOptions(
                                 initialCenter: BgcMapData.center,
                                 initialZoom: BgcMapData.defaultZoom,
+                                minZoom: BgcMapData.minZoom,
+                                maxZoom: BgcMapData.maxZoom,
+                                cameraConstraint: CameraConstraint.contain(
+                                  bounds: LatLngBounds(
+                                    LatLng(
+                                      BgcMapData.boundsSouthWestLat,
+                                      BgcMapData.boundsSouthWestLng,
+                                    ),
+                                    LatLng(
+                                      BgcMapData.boundsNorthEastLat,
+                                      BgcMapData.boundsNorthEastLng,
+                                    ),
+                                  ),
+                                ),
+                                onMapEvent: _onMapEvent,
                                 interactionOptions: const InteractionOptions(
                                   flags: InteractiveFlag.all,
                                 ),
@@ -524,31 +494,67 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     Polygon(
                                       points: BgcMapData.boundaryPolygon,
                                       color: BgcMapData.boundaryColor
-                                          .withValues(alpha: 0.3),
+                                          .withValues(alpha: 0.2),
                                       borderColor: BgcMapData.boundaryColor,
                                       borderStrokeWidth: 2,
                                     ),
                                   ],
                                 ),
-                                if (routePolyline.length >= 2)
+                                if (heatmapOn)
+                                  CircleLayer(circles: _buildHeatmapCircles()),
+                                if (polylines != null)
                                   PolylineLayer(
-                                    polylines: [
-                                      Polyline(
-                                        points: routePolyline,
-                                        color: AppColors.primary,
-                                        strokeWidth: 4,
+                                    polylines: _buildRoutePolylines(
+                                      polylines,
+                                      highlighted,
+                                    ),
+                                  ),
+                                if (!heatmapOn)
+                                  MarkerLayer(
+                                    markers: [
+                                      ..._buildAccessibilityMarkers(),
+                                      ..._buildReportMarkers(reports),
+                                      ..._buildRouteMarkers(
+                                        origin,
+                                        destination,
                                       ),
                                     ],
+                                  )
+                                else
+                                  MarkerLayer(
+                                    markers: _buildRouteMarkers(
+                                      origin,
+                                      destination,
+                                    ),
                                   ),
-                                MarkerLayer(
-                                  markers: _buildOverlayMarkers(
-                                    reports,
-                                    origin,
-                                    destination,
-                                  ),
-                                ),
                               ],
                             ),
+                            if (destination == null)
+                              Center(
+                                child: Container(
+                                  margin: const EdgeInsets.all(24),
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    'Search a destination to get started',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey[700],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (heatmapOn)
+                              const Positioned(
+                                right: 12,
+                                bottom: 12,
+                                child: HeatmapLegend(),
+                              ),
                             if (_locationLoading)
                               Positioned(
                                 top: 12,
