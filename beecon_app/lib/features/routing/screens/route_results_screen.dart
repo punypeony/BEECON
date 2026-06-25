@@ -1,37 +1,31 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/services/gemini_service.dart';
 import 'package:beecon_app/core/storage/ai_insight_storage.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/features/home/data/bgc_destinations.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/services/route_generator.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class RouteResultsScreen extends StatefulWidget {
+class RouteResultsScreen extends ConsumerStatefulWidget {
   const RouteResultsScreen({super.key});
 
   @override
-  State<RouteResultsScreen> createState() => _RouteResultsScreenState();
+  ConsumerState<RouteResultsScreen> createState() =>
+      _RouteResultsScreenState();
 }
 
-class _RouteResultsScreenState extends State<RouteResultsScreen> {
-  static const _origin = 'High Street';
-  static const _destination = 'SM Aura';
-
-  late final List<RouteModel> _routes;
+class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
   final GeminiService _geminiService = GeminiService();
 
   String? _selectedRouteId;
   bool _insightLoading = false;
   String? _insightText;
-
-  @override
-  void initState() {
-    super.initState();
-    _routes = RouteGenerator.generateBgcRoutes();
-  }
 
   Color _scoreBadgeColor(int score) {
     if (score >= 80) return Colors.green;
@@ -39,7 +33,13 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
     return Colors.red;
   }
 
-  Future<void> _selectRoute(RouteModel route) async {
+  void _resetRouteSelection() {
+    _selectedRouteId = null;
+    _insightLoading = false;
+    _insightText = null;
+  }
+
+  Future<void> _selectRoute(RouteModel route, BgcDestination destination) async {
     setState(() {
       _selectedRouteId = route.id;
       _insightLoading = true;
@@ -48,8 +48,8 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
 
     await HiveService.saveRoute(
       route,
-      originLabel: _origin,
-      destinationLabel: _destination,
+      originLabel: RouteGenerator.defaultOriginName,
+      destinationLabel: destination.name,
     );
 
     if (!mounted) return;
@@ -78,8 +78,8 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
         routeType: route.typeLabel,
         accessibilityScore: route.totalScore,
         warnings: route.warnings,
-        origin: _origin,
-        destination: _destination,
+        origin: RouteGenerator.defaultOriginName,
+        destination: destination.name,
       );
 
       await AiInsightStorage.saveInsight(
@@ -104,45 +104,129 @@ class _RouteResultsScreenState extends State<RouteResultsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final destination = ref.watch(selectedDestinationProvider);
+
+    ref.listen<BgcDestination?>(selectedDestinationProvider, (previous, next) {
+      if (previous != next) {
+        setState(_resetRouteSelection);
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Routes',
+          destination == null
+              ? 'Routes'
+              : 'Routes to ${destination.name}',
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            '$_origin → $_destination',
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              color: Colors.grey[600],
+      body: destination == null
+          ? _EmptyDestinationState()
+          : _RouteResultsBody(
+              destination: destination,
+              selectedRouteId: _selectedRouteId,
+              insightLoading: _insightLoading,
+              insightText: _insightText,
+              scoreBadgeColor: _scoreBadgeColor,
+              onSelectRoute: (route) => _selectRoute(route, destination),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Choose a route based on time and accessibility',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+    );
+  }
+}
+
+class _EmptyDestinationState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search,
+              size: 64,
+              color: Colors.grey[400],
             ),
-          ),
-          const SizedBox(height: 20),
-          ..._routes.map(
-            (route) => _RouteCard(
-              route: route,
-              isSelected: _selectedRouteId == route.id,
-              badgeColor: _scoreBadgeColor(route.totalScore),
-              insightLoading:
-                  _selectedRouteId == route.id && _insightLoading,
-              insightText: _selectedRouteId == route.id ? _insightText : null,
-              onSelect: () => _selectRoute(route),
+            const SizedBox(height: 20),
+            Text(
+              'Search for a destination to see routes',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              'Go to Home, search for a BGC location, then return here.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: Colors.grey[600],
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _RouteResultsBody extends StatelessWidget {
+  const _RouteResultsBody({
+    required this.destination,
+    required this.selectedRouteId,
+    required this.insightLoading,
+    required this.insightText,
+    required this.scoreBadgeColor,
+    required this.onSelectRoute,
+  });
+
+  final BgcDestination destination;
+  final String? selectedRouteId;
+  final bool insightLoading;
+  final String? insightText;
+  final Color Function(int score) scoreBadgeColor;
+  final ValueChanged<RouteModel> onSelectRoute;
+
+  @override
+  Widget build(BuildContext context) {
+    final routes = RouteGenerator.generateBgcRoutes(destination);
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          '${RouteGenerator.defaultOriginName} → ${destination.name}',
+          style: GoogleFonts.poppins(
+            fontSize: 14,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Choose a route based on time and accessibility',
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 20),
+        ...routes.map(
+          (route) => _RouteCard(
+            route: route,
+            isSelected: selectedRouteId == route.id,
+            badgeColor: scoreBadgeColor(route.totalScore),
+            insightLoading: selectedRouteId == route.id && insightLoading,
+            insightText: selectedRouteId == route.id ? insightText : null,
+            onSelect: () => onSelectRoute(route),
+          ),
+        ),
+      ],
     );
   }
 }
