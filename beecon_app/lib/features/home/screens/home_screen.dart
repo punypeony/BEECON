@@ -38,6 +38,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final MapController _mapController = MapController();
   final OrsService _orsService = OrsService();
   bool _locationLoading = true;
+  MapOptions? _mapOptions;
+
+  MapOptions get _stableMapOptions {
+    return _mapOptions ??= MapOptions(
+      initialCenter: BgcMapData.center,
+      initialZoom: BgcMapData.defaultZoom,
+      minZoom: BgcMapData.minZoom,
+      maxZoom: BgcMapData.maxZoom,
+      cameraConstraint: CameraConstraint.contain(
+        bounds: LatLngBounds(
+          LatLng(
+            BgcMapData.boundsSouthWestLat,
+            BgcMapData.boundsSouthWestLng,
+          ),
+          LatLng(
+            BgcMapData.boundsNorthEastLat,
+            BgcMapData.boundsNorthEastLng,
+          ),
+        ),
+      ),
+      onMapEvent: _onMapEvent,
+      onTap: _handleMapTap,
+      interactionOptions: const InteractionOptions(
+        flags: InteractiveFlag.all,
+      ),
+    );
+  }
+
+  void _handleMapTap(TapPosition tapPosition, LatLng point) {
+    if (ref.read(reportTapModeProvider)) {
+      _onReportMapTap(point);
+    }
+  }
 
   @override
   void initState() {
@@ -580,7 +613,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: reportTapMode ? _cancelReportTapMode : _startReportTapMode,
+                  onPressed:
+                      reportTapMode ? _cancelReportTapMode : _startReportTapMode,
                   icon: Icon(
                     reportTapMode
                         ? Icons.close
@@ -588,7 +622,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     color: reportTapMode ? Colors.red : AppColors.primary,
                   ),
                   label: Text(
-                    reportTapMode ? 'Cancel report placement' : 'Report an issue',
+                    reportTapMode ? 'Cancel' : 'Report an issue',
+                    overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.poppins(
                       fontWeight: FontWeight.w600,
                       color: reportTapMode ? Colors.red : AppColors.primary,
@@ -619,31 +654,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           children: [
                             FlutterMap(
                               mapController: _mapController,
-                              options: MapOptions(
-                                initialCenter: BgcMapData.center,
-                                initialZoom: BgcMapData.defaultZoom,
-                                minZoom: BgcMapData.minZoom,
-                                maxZoom: BgcMapData.maxZoom,
-                                cameraConstraint: CameraConstraint.contain(
-                                  bounds: LatLngBounds(
-                                    LatLng(
-                                      BgcMapData.boundsSouthWestLat,
-                                      BgcMapData.boundsSouthWestLng,
-                                    ),
-                                    LatLng(
-                                      BgcMapData.boundsNorthEastLat,
-                                      BgcMapData.boundsNorthEastLng,
-                                    ),
-                                  ),
-                                ),
-                                onMapEvent: _onMapEvent,
-                                onTap: reportTapMode
-                                    ? (_, point) => _onReportMapTap(point)
-                                    : null,
-                                interactionOptions: const InteractionOptions(
-                                  flags: InteractiveFlag.all,
-                                ),
-                              ),
+                              options: _stableMapOptions,
                               children: [
                                 TileLayer(
                                   urlTemplate:
@@ -714,6 +725,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                         Expanded(
                                           child: Text(
                                             'Tap the map to place your report',
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 2,
                                             style: GoogleFonts.poppins(
                                               fontSize: 13,
                                               fontWeight: FontWeight.w500,

@@ -1,25 +1,35 @@
 import 'dart:io';
 
+import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/features/reports/models/report_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 
-class ReportScreen extends StatefulWidget {
-  const ReportScreen({super.key});
+class ReportScreen extends ConsumerStatefulWidget {
+  const ReportScreen({
+    super.key,
+    this.lat,
+    this.lng,
+  });
+
+  final double? lat;
+  final double? lng;
 
   @override
-  State<ReportScreen> createState() => _ReportScreenState();
+  ConsumerState<ReportScreen> createState() => _ReportScreenState();
 }
 
-class _ReportScreenState extends State<ReportScreen> {
+class _ReportScreenState extends ConsumerState<ReportScreen> {
   static const _reportTypes = [
     'Broken Elevator',
     'Blocked Ramp',
@@ -34,65 +44,14 @@ class _ReportScreenState extends State<ReportScreen> {
 
   String _reportType = _reportTypes.first;
   String? _photoPath;
-  double? _lat;
-  double? _lng;
-  bool _loadingLocation = true;
   bool _submitting = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadGpsCoordinates();
-  }
+  bool get _hasLocation => widget.lat != null && widget.lng != null;
 
   @override
   void dispose() {
     _descriptionController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadGpsCoordinates() async {
-    try {
-      if (!kIsWeb) {
-        final status = await Permission.locationWhenInUse.request();
-        if (!status.isGranted) {
-          if (mounted) setState(() => _loadingLocation = false);
-          return;
-        }
-      }
-
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        if (mounted) setState(() => _loadingLocation = false);
-        return;
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        if (mounted) setState(() => _loadingLocation = false);
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-
-      if (mounted) {
-        setState(() {
-          _lat = position.latitude;
-          _lng = position.longitude;
-          _loadingLocation = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _loadingLocation = false);
-    }
   }
 
   Future<void> _pickPhoto(ImageSource source) async {
@@ -121,7 +80,10 @@ class _ReportScreenState extends State<ReportScreen> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.photo_library_outlined),
-                  title: Text('Choose from gallery', style: GoogleFonts.poppins()),
+                  title: Text(
+                    'Choose from gallery',
+                    style: GoogleFonts.poppins(),
+                  ),
                   onTap: () {
                     Navigator.pop(context);
                     _pickPhoto(ImageSource.gallery);
@@ -130,7 +92,10 @@ class _ReportScreenState extends State<ReportScreen> {
                 if (!kIsWeb)
                   ListTile(
                     leading: const Icon(Icons.camera_alt_outlined),
-                    title: Text('Take a photo', style: GoogleFonts.poppins()),
+                    title: Text(
+                      'Take a photo',
+                      style: GoogleFonts.poppins(),
+                    ),
                     onTap: () {
                       Navigator.pop(context);
                       _pickPhoto(ImageSource.camera);
@@ -145,6 +110,8 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   Future<void> _submitReport() async {
+    if (!_hasLocation) return;
+
     final description = _descriptionController.text.trim();
     if (description.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -158,25 +125,13 @@ class _ReportScreenState extends State<ReportScreen> {
       return;
     }
 
-    if (_lat == null || _lng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'GPS coordinates unavailable. Enable location and try again.',
-            style: GoogleFonts.poppins(),
-          ),
-        ),
-      );
-      return;
-    }
-
     setState(() => _submitting = true);
 
     final report = ReportModel(
       reportType: _reportType,
       description: description,
-      lat: _lat!,
-      lng: _lng!,
+      lat: widget.lat!,
+      lng: widget.lng!,
       photoPath: _photoPath,
     );
 
@@ -185,24 +140,41 @@ class _ReportScreenState extends State<ReportScreen> {
     if (!mounted) return;
     setState(() => _submitting = false);
 
+    final location = LatLng(widget.lat!, widget.lng!);
+
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          'Success',
+          'Report submitted!',
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
         content: Text(
-          'Report submitted successfully',
+          'Your report has been pinned at this location',
           style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pop(context);
+              context.go(AppConstants.home);
+            },
             child: Text(
-              'OK',
-              style: GoogleFonts.poppins(color: AppColors.primary),
+              'Close',
+              style: GoogleFonts.poppins(color: Colors.grey[700]),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              ref.read(highlightReportLocationProvider.notifier).state =
+                  location;
+              context.go(AppConstants.home);
+            },
+            child: Text(
+              'View on Map',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -211,17 +183,67 @@ class _ReportScreenState extends State<ReportScreen> {
 
     _descriptionController.clear();
     setState(() => _photoPath = null);
-    await _loadGpsCoordinates();
   }
 
-  String get _coordinatesLabel {
-    if (_loadingLocation) return 'Fetching GPS…';
-    if (_lat == null || _lng == null) return 'Location unavailable';
-    return '${_lat!.toStringAsFixed(6)}, ${_lng!.toStringAsFixed(6)}';
+  void _goToMapToPickLocation() {
+    ref.read(reportTapModeProvider.notifier).state = true;
+    ref.read(pendingReportPinProvider.notifier).state = null;
+    context.go(AppConstants.home);
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_hasLocation) {
+      return Scaffold(
+        appBar: const BeeconBrandedAppBar(
+          logoHeader: BeeconLogoHeader(title: 'Report an Issue'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.map_outlined,
+                  size: 64,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Pick a location on the map',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Go to Home, tap "Report an issue", then tap the map where the obstacle is.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _goToMapToPickLocation,
+                  icon: const Icon(Icons.touch_app),
+                  label: Text(
+                    'Go to Map',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: const BeeconBrandedAppBar(
         logoHeader: BeeconLogoHeader(title: 'Report an Issue'),
@@ -244,6 +266,10 @@ class _ReportScreenState extends State<ReportScreen> {
               style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 20),
+            _LocationPreviewCard(lat: widget.lat!, lng: widget.lng!),
+            const SizedBox(height: 16),
+            _LocationCoordinatesCard(lat: widget.lat!, lng: widget.lng!),
+            const SizedBox(height: 20),
             Text(
               'Report type',
               style: GoogleFonts.poppins(
@@ -254,7 +280,7 @@ class _ReportScreenState extends State<ReportScreen> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _reportType,
+              initialValue: _reportType,
               decoration: InputDecoration(
                 filled: true,
                 fillColor: AppColors.accent,
@@ -332,8 +358,11 @@ class _ReportScreenState extends State<ReportScreen> {
                     ? Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.add_a_photo_outlined,
-                              color: Colors.grey, size: 36),
+                          const Icon(
+                            Icons.add_a_photo_outlined,
+                            color: Colors.grey,
+                            size: 36,
+                          ),
                           const SizedBox(height: 8),
                           Text(
                             'Tap to add photo',
@@ -344,8 +373,12 @@ class _ReportScreenState extends State<ReportScreen> {
                     : ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: kIsWeb
-                            ? Image.network(_photoPath!, fit: BoxFit.cover,
-                                width: double.infinity, height: 140)
+                            ? Image.network(
+                                _photoPath!,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: 140,
+                              )
                             : Image.file(
                                 File(_photoPath!),
                                 fit: BoxFit.cover,
@@ -353,44 +386,6 @@ class _ReportScreenState extends State<ReportScreen> {
                                 height: 140,
                               ),
                       ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'GPS coordinates',
-              style: GoogleFonts.poppins(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[700],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE0E0E0)),
-              ),
-              child: Row(
-                children: [
-                  if (_loadingLocation)
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else
-                    const Icon(Icons.gps_fixed, color: Colors.grey, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _coordinatesLabel,
-                      style: GoogleFonts.poppins(fontSize: 14),
-                    ),
-                  ),
-                ],
               ),
             ),
             const SizedBox(height: 24),
@@ -428,7 +423,10 @@ class _ReportScreenState extends State<ReportScreen> {
                   children: reports.take(3).map((report) {
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.warning_amber, color: Colors.red),
+                      leading: const Icon(
+                        Icons.report_problem,
+                        color: Colors.red,
+                      ),
                       title: Text(
                         report.reportType,
                         style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
@@ -474,6 +472,101 @@ class _ReportScreenState extends State<ReportScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LocationPreviewCard extends StatelessWidget {
+  const _LocationPreviewCard({required this.lat, required this.lng});
+
+  final double lat;
+  final double lng;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 120,
+      decoration: BoxDecoration(
+        color: AppColors.selectedBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(
+            Icons.map_outlined,
+            size: 80,
+            color: AppColors.primary.withValues(alpha: 0.15),
+          ),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.location_on, color: Colors.red, size: 36),
+              const SizedBox(height: 6),
+              Text(
+                'Pinned location',
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationCoordinatesCard extends StatelessWidget {
+  const _LocationCoordinatesCard({required this.lat, required this.lng});
+
+  final double lat;
+  final double lng;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.green.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_on, color: AppColors.primary, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Lat: ${lat.toStringAsFixed(4)}, Lng: ${lng.toStringAsFixed(4)}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Location set',
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    color: Colors.green[700],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.check_circle, color: Colors.green[600], size: 22),
+        ],
       ),
     );
   }
