@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/features/reports/models/report_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -222,11 +223,8 @@ class _ReportScreenState extends State<ReportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Report',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        ),
+      appBar: const BeeconBrandedAppBar(
+        logoHeader: BeeconLogoHeader(title: 'Report an Issue'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -451,6 +449,14 @@ class _ReportScreenState extends State<ReportScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _submitting ? null : _submitReport,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 child: _submitting
                     ? const SizedBox(
                         width: 22,

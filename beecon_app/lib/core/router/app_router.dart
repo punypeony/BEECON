@@ -1,6 +1,5 @@
-import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/features/auth/screens/splash_screen.dart';
 import 'package:beecon_app/features/auth/screens/onboarding_screen.dart';
 import 'package:beecon_app/features/auth/screens/profile_select_screen.dart';
@@ -9,6 +8,9 @@ import 'package:beecon_app/features/routing/screens/route_results_screen.dart';
 import 'package:beecon_app/features/reports/screens/report_screen.dart';
 import 'package:beecon_app/features/profile/screens/profile_screen.dart';
 import 'package:beecon_app/features/profile/screens/saved_locations_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 CustomTransitionPage<void> _slidePage(GoRouterState state, Widget child) {
   return CustomTransitionPage<void>(
@@ -79,7 +81,7 @@ final appRouter = GoRouter(
   ],
 );
 
-/// Thin shell that owns the BottomNavigationBar shared across the main tabs.
+/// Shell that owns the branded bottom navigation bar shared across main tabs.
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key, required this.child});
 
@@ -93,46 +95,125 @@ class HomeShell extends StatelessWidget {
     return 0;
   }
 
+  void _onTap(BuildContext context, int index) {
+    switch (index) {
+      case 0:
+        context.go(AppConstants.home);
+      case 1:
+        context.go(AppConstants.routes);
+      case 2:
+        context.go(AppConstants.report);
+      case 3:
+        context.go(AppConstants.profile);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final currentIndex = _currentIndex(context);
+
     return Scaffold(
       body: child,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex(context),
-        onDestinationSelected: (index) {
-          switch (index) {
-            case 0:
-              context.go(AppConstants.home);
-            case 1:
-              context.go(AppConstants.routes);
-            case 2:
-              context.go(AppConstants.report);
-            case 3:
-              context.go(AppConstants.profile);
-          }
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: SizedBox(
+            height: 64,
+            child: Row(
+              children: [
+                _NavItem(
+                  icon: Icons.home_outlined,
+                  selectedIcon: Icons.home,
+                  label: 'Home',
+                  selected: currentIndex == 0,
+                  onTap: () => _onTap(context, 0),
+                ),
+                _NavItem(
+                  icon: Icons.route_outlined,
+                  selectedIcon: Icons.route,
+                  label: 'Routes',
+                  selected: currentIndex == 1,
+                  onTap: () => _onTap(context, 1),
+                ),
+                _NavItem(
+                  icon: Icons.report_outlined,
+                  selectedIcon: Icons.report,
+                  label: 'Report',
+                  selected: currentIndex == 2,
+                  onTap: () => _onTap(context, 2),
+                ),
+                _NavItem(
+                  icon: Icons.person_outline,
+                  selectedIcon: Icons.person,
+                  label: 'Profile',
+                  selected: currentIndex == 3,
+                  onTap: () => _onTap(context, 3),
+                ),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.route_outlined),
-            selectedIcon: Icon(Icons.route),
-            label: 'Routes',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.report_outlined),
-            selectedIcon: Icon(Icons.report),
-            label: 'Report',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.primary : Colors.grey;
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(selected ? selectedIcon : icon, color: color, size: 24),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              height: 3,
+              width: selected ? 28 : 0,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

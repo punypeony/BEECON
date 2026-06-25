@@ -1,4 +1,5 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/services/ors_service.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
@@ -391,22 +392,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final routesLoading = ref.watch(routesLoadingProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Image.asset(
-          AppConstants.logoPath,
-          height: 48,
-          fit: BoxFit.contain,
-        ),
+      appBar: BeeconBrandedAppBar(
+        title: const BeeconAppBarTitle(),
         actions: [
           IconButton(
-            icon: const Icon(Icons.help_outline),
+            icon: const Icon(Icons.help_outline, color: AppColors.primary),
             tooltip: 'How it works',
             onPressed: () => showHowItWorksSheet(context),
           ),
           IconButton(
             icon: Icon(
               heatmapOn ? Icons.layers : Icons.layers_outlined,
-              color: heatmapOn ? AppColors.primary : null,
+              color: AppColors.primary,
             ),
             tooltip: 'Heatmap',
             onPressed: () {

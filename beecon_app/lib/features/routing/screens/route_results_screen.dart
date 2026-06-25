@@ -1,4 +1,5 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/services/gemini_service.dart';
 import 'package:beecon_app/core/storage/ai_insight_storage.dart';
@@ -30,8 +31,8 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
   String? _insightText;
 
   Color _scoreBadgeColor(int score) {
-    if (score >= 80) return Colors.green;
-    if (score >= 50) return AppColors.primary;
+    if (score >= 80) return AppColors.primary;
+    if (score >= 50) return Colors.green;
     return Colors.red;
   }
 
@@ -128,12 +129,11 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          destination == null
+      appBar: BeeconBrandedAppBar(
+        logoHeader: BeeconLogoHeader(
+          title: destination == null
               ? 'Routes'
               : 'Routes to ${destination.label}',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
       ),
       body: destination == null || origin == null
@@ -524,8 +524,8 @@ class _AiInsightCard extends StatelessWidget {
                   children: [
                     Image.asset(
                       AppConstants.logoPath,
-                      width: 24,
-                      height: 24,
+                      width: BeeconLogoSizes.insight,
+                      height: BeeconLogoSizes.insight,
                       fit: BoxFit.contain,
                     ),
                     const SizedBox(width: 12),
@@ -534,7 +534,7 @@ class _AiInsightCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AI Accessibility Insight',
+                            '🐝 AI Accessibility Insight',
                             style: GoogleFonts.poppins(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,

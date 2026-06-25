@@ -1,13 +1,19 @@
+import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:beecon_app/core/constants/app_constants.dart';
-import 'package:beecon_app/core/theme/app_theme.dart';
 
-class ProfileSelectScreen extends StatelessWidget {
+class ProfileSelectScreen extends StatefulWidget {
   const ProfileSelectScreen({super.key});
 
+  @override
+  State<ProfileSelectScreen> createState() => _ProfileSelectScreenState();
+}
+
+class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
   static const List<_ProfileOption> _profiles = [
     _ProfileOption(icon: Icons.accessible, label: 'Wheelchair'),
     _ProfileOption(icon: Icons.elderly, label: 'Senior Citizen'),
@@ -17,57 +23,70 @@ class ProfileSelectScreen extends StatelessWidget {
     _ProfileOption(icon: Icons.directions_walk, label: 'General'),
   ];
 
-  Future<void> _selectProfile(BuildContext context, String label) async {
+  String? _selectedLabel;
+
+  Future<void> _continue() async {
+    if (_selectedLabel == null) return;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppConstants.selectedProfileKey, label);
-    if (context.mounted) context.go(AppConstants.home);
+    await prefs.setString(AppConstants.selectedProfileKey, _selectedLabel!);
+    if (mounted) context.go(AppConstants.home);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Image.asset(AppConstants.logoPath, height: 48, fit: BoxFit.contain),
-      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Select your profile',
-                style: GoogleFonts.poppins(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
+              const BeeconBrandHeader(
+                subtitle: 'Choose your mobility profile',
               ),
-              const SizedBox(height: 6),
-              Text(
-                'We\'ll tailor routes to suit your needs.',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
               Expanded(
-                child: GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 1.1,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Text(
+                      '🐝',
+                      style: TextStyle(
+                        fontSize: 200,
+                        color: AppColors.primary.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 1.1,
+                      ),
+                      itemCount: _profiles.length,
+                      itemBuilder: (context, index) {
+                        final profile = _profiles[index];
+                        return _ProfileCard(
+                          profile: profile,
+                          isSelected: _selectedLabel == profile.label,
+                          onTap: () =>
+                              setState(() => _selectedLabel = profile.label),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _selectedLabel == null ? null : _continue,
+                  child: Text(
+                    'Continue',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
                   ),
-                  itemCount: _profiles.length,
-                  itemBuilder: (context, index) {
-                    final profile = _profiles[index];
-                    return _ProfileCard(
-                      profile: profile,
-                      onTap: () => _selectProfile(context, profile.label),
-                    );
-                  },
                 ),
               ),
             ],
@@ -79,8 +98,14 @@ class ProfileSelectScreen extends StatelessWidget {
 }
 
 class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.profile, required this.onTap});
+  const _ProfileCard({
+    required this.profile,
+    required this.isSelected,
+    required this.onTap,
+  });
+
   final _ProfileOption profile;
+  final bool isSelected;
   final VoidCallback onTap;
 
   @override
@@ -88,11 +113,15 @@ class _ProfileCard extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: AppColors.accent,
+          color: isSelected ? AppColors.selectedBackground : AppColors.accent,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.primary.withAlpha(60)),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : const Color(0xFFE0E0E0),
+            width: isSelected ? 2 : 1,
+          ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -101,7 +130,7 @@ class _ProfileCard extends StatelessWidget {
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                color: AppColors.primary.withAlpha(30),
+                color: AppColors.primary.withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
               child: Icon(profile.icon, size: 30, color: AppColors.primary),

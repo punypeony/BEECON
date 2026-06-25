@@ -1,5 +1,6 @@
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/features/profile/models/saved_location_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -180,11 +181,8 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Saved Locations',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        ),
+      appBar: const BeeconBrandedAppBar(
+        logoHeader: BeeconLogoHeader(title: 'Saved Locations'),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _adding ? null : _showAddLocationDialog,

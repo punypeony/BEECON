@@ -1,6 +1,7 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/storage/ai_insight_storage.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -80,8 +81,8 @@ class _AiInsightBannerState extends State<AiInsightBanner> {
                   children: [
                     Image.asset(
                       AppConstants.logoPath,
-                      width: 22,
-                      height: 22,
+                      width: BeeconLogoSizes.insight,
+                      height: BeeconLogoSizes.insight,
                       fit: BoxFit.contain,
                     ),
                     const SizedBox(width: 10),
@@ -90,7 +91,7 @@ class _AiInsightBannerState extends State<AiInsightBanner> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AI Accessibility Insight',
+                            '🐝 AI Accessibility Insight',
                             style: GoogleFonts.poppins(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,

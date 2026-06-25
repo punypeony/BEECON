@@ -1,8 +1,9 @@
+import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:beecon_app/core/constants/app_constants.dart';
-import 'package:beecon_app/core/theme/app_theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -92,7 +93,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   decoration: BoxDecoration(
                     color: _currentPage == i
                         ? AppColors.primary
-                        : AppColors.accent,
+                        : AppColors.inactiveGray,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -130,35 +131,45 @@ class _SlideWidget extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: AppColors.accent,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(slide.icon, size: 60, color: AppColors.primary),
+          const Align(
+            alignment: Alignment.topLeft,
+            child: BeeconLogoSmall(),
           ),
-          const SizedBox(height: 40),
-          Text(
-            slide.title,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: AppColors.secondary,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            slide.body,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: 15,
-              color: Colors.grey[600],
-              height: 1.6,
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 120,
+                  height: 120,
+                  decoration: const BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(slide.icon, size: 60, color: AppColors.primary),
+                ),
+                const SizedBox(height: 40),
+                Text(
+                  slide.title,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  slide.body,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    color: Colors.grey[600],
+                    height: 1.6,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

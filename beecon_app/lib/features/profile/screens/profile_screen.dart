@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -32,11 +33,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'My Profile',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        ),
+      appBar: const BeeconBrandedAppBar(
+        logoHeader: BeeconLogoHeader(title: 'My Profile'),
       ),
       body: SafeArea(
         child: Padding(
