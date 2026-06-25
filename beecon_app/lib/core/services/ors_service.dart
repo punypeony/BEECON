@@ -9,10 +9,12 @@ import 'package:latlong2/latlong.dart';
 class OrsService {
   static const String _orsApiPath =
       'https://api.openrouteservice.org/v2/directions/foot-walking/geojson';
+  static const String _osrmBase =
+      'https://router.project-osrm.org/route/v1/foot';
 
-  /// Builds request URL. Web uses corsproxy.io (API key in query string because
-  /// proxies often strip Authorization headers).
-  String _requestUrl(String apiKey) {
+  /// Builds ORS request URL. Web uses corsproxy.io with api_key in the query
+  /// string because proxies often strip Authorization headers.
+  String _orsRequestUrl(String apiKey) {
     final orsUrl = '$_orsApiPath?api_key=${Uri.encodeQueryComponent(apiKey)}';
     if (kIsWeb) {
       return 'https://corsproxy.io/?${Uri.encodeComponent(orsUrl)}';
@@ -20,7 +22,7 @@ class OrsService {
     return orsUrl;
   }
 
-  Map<String, String> _headers(String apiKey) {
+  Map<String, String> _orsHeaders(String apiKey) {
     if (kIsWeb) {
       return {'Content-Type': 'application/json'};
     }
@@ -40,8 +42,8 @@ class OrsService {
     return apiKey;
   }
 
-  /// Fetches a walking route polyline from OpenRouteService.
-  /// Falls back to a straight line when the API is unavailable.
+  /// Fetches a walking route polyline.
+  /// Web uses OSRM directly (CORS-friendly). Mobile tries ORS then OSRM.
   Future<List<LatLng>> getRoute(
     double originLat,
     double originLng,
@@ -49,33 +51,15 @@ class OrsService {
     double destLng, {
     List<LatLng>? waypoints,
   }) async {
-    final apiKey = _readApiKey();
-    if (apiKey == null) {
-      return _fallbackPolyline(originLat, originLng, destLat, destLng);
-    }
-
-    try {
-      final coordinates = <List<double>>[
-        [originLng, originLat],
-        ...?waypoints?.map((p) => [p.longitude, p.latitude]),
-        [destLng, destLat],
-      ];
-
-      final response = await http.post(
-        Uri.parse(_requestUrl(apiKey)),
-        headers: _headers(apiKey),
-        body: jsonEncode({'coordinates': coordinates}),
-      );
-
-      if (response.statusCode == 200) {
-        final decoded = _decodeCoordinates(response.body);
-        if (decoded.length >= 2) return decoded;
-      }
-    } catch (_) {
-      // Fall through to fallback.
-    }
-
-    return _fallbackPolyline(originLat, originLng, destLat, destLng);
+    final route = await _resolveRoute(
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+      waypoints: waypoints,
+    );
+    return route ??
+        _fallbackPolyline(originLat, originLng, destLat, destLng);
   }
 
   /// Fetches three route polylines (fastest, accessible, balanced).
@@ -85,64 +69,164 @@ class OrsService {
     double destLat,
     double destLng,
   ) async {
-    final apiKey = _readApiKey();
-    if (apiKey == null) {
+    final fastest = await _resolveRoute(
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+    );
+    if (fastest == null) {
       return _fallbackPolylines(originLat, originLng, destLat, destLng);
     }
 
-    try {
-      // Primary direct route (avoid alternative_routes — often fails on free tier).
-      final fastest = await getRoute(originLat, originLng, destLat, destLng);
-      final usedFallback = fastest.length == 12 &&
-          _isStraightFallback(fastest, originLat, originLng, destLat, destLng);
+    final midLat = (originLat + destLat) / 2;
+    final midLng = (originLng + destLng) / 2;
 
-      if (usedFallback) {
-        return _fallbackPolylines(originLat, originLng, destLat, destLng);
-      }
+    final accessible = await _resolveRoute(
+          originLat,
+          originLng,
+          destLat,
+          destLng,
+          waypoints: [LatLng(midLat + 0.0018, midLng + 0.0012)],
+        ) ??
+        _offsetPolyline(fastest, 0.0008);
 
-      final midLat = (originLat + destLat) / 2;
-      final midLng = (originLng + destLng) / 2;
+    final balanced = await _resolveRoute(
+          originLat,
+          originLng,
+          destLat,
+          destLng,
+          waypoints: [LatLng(midLat - 0.0012, midLng - 0.0008)],
+        ) ??
+        _offsetPolyline(fastest, -0.0008);
 
-      final accessible = await getRoute(
-        originLat,
-        originLng,
-        destLat,
-        destLng,
-        waypoints: [LatLng(midLat + 0.0018, midLng + 0.0012)],
-      );
-
-      final balanced = await getRoute(
-        originLat,
-        originLng,
-        destLat,
-        destLng,
-        waypoints: [LatLng(midLat - 0.0012, midLng - 0.0008)],
-      );
-
-      return RoutePolylines(
-        fastest: fastest,
-        accessible: accessible,
-        balanced: balanced,
-      );
-    } catch (_) {
-      return _fallbackPolylines(originLat, originLng, destLat, destLng);
-    }
+    return RoutePolylines(
+      fastest: fastest,
+      accessible: accessible,
+      balanced: balanced,
+    );
   }
 
-  bool _isStraightFallback(
-    List<LatLng> points,
+  Future<List<LatLng>?> _resolveRoute(
     double originLat,
     double originLng,
     double destLat,
-    double destLng,
-  ) {
-    if (points.length != 12) return false;
-    final first = points.first;
-    final last = points.last;
-    return (first.latitude - originLat).abs() < 0.0001 &&
-        (first.longitude - originLng).abs() < 0.0001 &&
-        (last.latitude - destLat).abs() < 0.0001 &&
-        (last.longitude - destLng).abs() < 0.0001;
+    double destLng, {
+    List<LatLng>? waypoints,
+  }) async {
+    if (kIsWeb) {
+      return _fetchOsrmRoute(
+        originLat,
+        originLng,
+        destLat,
+        destLng,
+        waypoints: waypoints,
+      );
+    }
+
+    final apiKey = _readApiKey();
+    if (apiKey != null) {
+      final ors = await _fetchOrsRoute(
+        originLat,
+        originLng,
+        destLat,
+        destLng,
+        apiKey: apiKey,
+        waypoints: waypoints,
+      );
+      if (ors != null) return ors;
+    }
+
+    return _fetchOsrmRoute(
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+      waypoints: waypoints,
+    );
+  }
+
+  Future<List<LatLng>?> _fetchOsrmRoute(
+    double originLat,
+    double originLng,
+    double destLat,
+    double destLng, {
+    List<LatLng>? waypoints,
+  }) async {
+    try {
+      final parts = <String>[
+        '$originLng,$originLat',
+        ...?waypoints?.map((p) => '${p.longitude},${p.latitude}'),
+        '$destLng,$destLat',
+      ];
+      final url =
+          '$_osrmBase/${parts.join(';')}?overview=full&geometries=geojson';
+
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) {
+        _logFailure('OSRM', response.statusCode, response.body);
+        return null;
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['code'] != 'Ok') {
+        _logFailure('OSRM', response.statusCode, data['message']?.toString());
+        return null;
+      }
+
+      final routes = data['routes'] as List<dynamic>?;
+      if (routes == null || routes.isEmpty) return null;
+
+      final geometry = routes.first['geometry'] as Map<String, dynamic>;
+      final coords = _coordsFromGeometry(geometry);
+      return coords.length >= 2 ? coords : null;
+    } catch (e) {
+      _logFailure('OSRM', null, e.toString());
+      return null;
+    }
+  }
+
+  Future<List<LatLng>?> _fetchOrsRoute(
+    double originLat,
+    double originLng,
+    double destLat,
+    double destLng, {
+    required String apiKey,
+    List<LatLng>? waypoints,
+  }) async {
+    try {
+      final coordinates = <List<double>>[
+        [originLng, originLat],
+        ...?waypoints?.map((p) => [p.longitude, p.latitude]),
+        [destLng, destLat],
+      ];
+
+      final response = await http.post(
+        Uri.parse(_orsRequestUrl(apiKey)),
+        headers: _orsHeaders(apiKey),
+        body: jsonEncode({'coordinates': coordinates}),
+      );
+
+      if (response.statusCode != 200) {
+        _logFailure('ORS', response.statusCode, response.body);
+        return null;
+      }
+
+      final coords = _decodeOrsCoordinates(response.body);
+      return coords.length >= 2 ? coords : null;
+    } catch (e) {
+      _logFailure('ORS', null, e.toString());
+      return null;
+    }
+  }
+
+  void _logFailure(String provider, int? status, String? detail) {
+    if (!kDebugMode) return;
+    debugPrint(
+      'OrsService: $provider routing failed'
+      '${status != null ? ' (HTTP $status)' : ''}'
+      '${detail != null ? ': ${detail.length > 120 ? '${detail.substring(0, 120)}...' : detail}' : ''}',
+    );
   }
 
   RoutePolylines _fallbackPolylines(
@@ -159,7 +243,7 @@ class OrsService {
     );
   }
 
-  List<LatLng> _decodeCoordinates(String body) {
+  List<LatLng> _decodeOrsCoordinates(String body) {
     final data = jsonDecode(body) as Map<String, dynamic>;
 
     if (data.containsKey('error')) {
@@ -169,11 +253,7 @@ class OrsService {
     final features = data['features'] as List<dynamic>?;
     if (features == null || features.isEmpty) return [];
 
-    return _coordsFromFeature(features.first);
-  }
-
-  List<LatLng> _coordsFromFeature(dynamic feature) {
-    final geometry = feature['geometry'] as Map<String, dynamic>;
+    final geometry = features.first['geometry'] as Map<String, dynamic>;
     return _coordsFromGeometry(geometry);
   }
 

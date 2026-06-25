@@ -32,7 +32,7 @@ Create `assets/.env` with your API keys (see below), then hot restart the app.
    ORS_API_KEY=your_key_here
    ```
 
-Without an ORS key, the app falls back to straight-line routes between origin and destination.
+On **Flutter Web**, walking routes use the public [OSRM](https://project-osrm.org/) API (no key required, CORS-friendly). On mobile, ORS is used when a valid key is set; otherwise OSRM is used. Straight-line routes only appear if all routing providers fail.
 
 ## Architecture Overview
 
