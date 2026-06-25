@@ -11,6 +11,7 @@ import 'package:beecon_app/features/home/screens/widgets/emergency_sheet.dart';
 import 'package:beecon_app/features/home/screens/widgets/heatmap_legend.dart';
 import 'package:beecon_app/features/home/screens/widgets/how_it_works_sheet.dart';
 import 'package:beecon_app/features/home/screens/widgets/location_search_panel.dart';
+import 'package:beecon_app/features/home/screens/widgets/report_location_sheet.dart';
 import 'package:beecon_app/features/reports/models/report_model.dart';
 import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
@@ -100,6 +101,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (_) {
       if (mounted) setState(() => _locationLoading = false);
     }
+  }
+
+  void _startReportTapMode() {
+    closeLocationSearchDropdown(ref);
+    ref.read(pendingReportPinProvider.notifier).state = null;
+    ref.read(reportTapModeProvider.notifier).state = true;
+  }
+
+  void _cancelReportTapMode() {
+    ref.read(reportTapModeProvider.notifier).state = false;
+    ref.read(pendingReportPinProvider.notifier).state = null;
+  }
+
+  void _onReportMapTap(LatLng point) {
+    if (!ref.read(reportTapModeProvider)) return;
+
+    if (!BgcMapData.isWithinBounds(point)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Please tap within the BGC map area.',
+            style: GoogleFonts.poppins(),
+          ),
+        ),
+      );
+      return;
+    }
+
+    ref.read(pendingReportPinProvider.notifier).state = point;
+
+    showReportLocationSheet(
+      context,
+      location: point,
+      onContinue: () {
+        ref.read(reportTapModeProvider.notifier).state = false;
+        ref.read(pendingReportPinProvider.notifier).state = null;
+        navigateToReportForm(context, point);
+      },
+      onCancel: _cancelReportTapMode,
+    );
+  }
+
+  void _showReportTapModeSnackBar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Tap anywhere on the map to place your report',
+          style: GoogleFonts.poppins(color: Colors.white),
+        ),
+        backgroundColor: AppColors.primary,
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _focusSubmittedReport(LatLng location) {
+    _mapController.move(
+      location,
+      (_mapController.camera.zoom).clamp(
+        BgcMapData.minZoom,
+        BgcMapData.maxZoom,
+      ),
+    );
   }
 
   void _onMapEvent(MapEvent event) {
@@ -287,19 +352,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              report.reportType,
-              style: GoogleFonts.poppins(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                const Icon(Icons.report_problem, color: Colors.red, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    report.reportType,
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
-            Text(formatTimeAgo(report.timestamp),
-                style: GoogleFonts.poppins(color: Colors.grey[600])),
+            Text(
+              formatTimeAgo(report.timestamp),
+              style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Lat: ${report.lat.toStringAsFixed(4)}, '
+              'Lng: ${report.lng.toStringAsFixed(4)}',
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                color: Colors.grey[700],
+              ),
+            ),
             const SizedBox(height: 12),
-            Text(report.description,
-                style: GoogleFonts.poppins(height: 1.5)),
+            Text(
+              report.description,
+              style: GoogleFonts.poppins(height: 1.5, fontSize: 14),
+            ),
           ],
         ),
       ),
@@ -332,15 +429,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         .map(
           (report) => Marker(
             point: LatLng(report.lat, report.lng),
-            width: 32,
-            height: 32,
+            width: 36,
+            height: 36,
             child: GestureDetector(
               onTap: () => _showReportSheet(report),
-              child: const Icon(Icons.warning, color: Colors.red, size: 28),
+              child: const Icon(
+                Icons.report_problem,
+                color: Colors.red,
+                size: 32,
+              ),
             ),
           ),
         )
         .toList();
+  }
+
+  Marker? _buildPendingReportPin(LatLng? point) {
+    if (point == null) return null;
+    return Marker(
+      point: point,
+      width: 44,
+      height: 44,
+      alignment: Alignment.bottomCenter,
+      child: const Icon(Icons.location_on, color: Colors.red, size: 44),
+    );
   }
 
   List<Marker> _buildRouteMarkers(
@@ -390,6 +502,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final highlighted = ref.watch(highlightedRouteTypeProvider);
     final heatmapOn = ref.watch(heatmapEnabledProvider);
     final routesLoading = ref.watch(routesLoadingProvider);
+    final reportTapMode = ref.watch(reportTapModeProvider);
+    final pendingReportPin = ref.watch(pendingReportPinProvider);
+
+    ref.listen<bool>(reportTapModeProvider, (previous, next) {
+      if (next && previous != next) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showReportTapModeSnackBar();
+        });
+      }
+    });
+
+    ref.listen<LatLng?>(highlightReportLocationProvider, (previous, next) {
+      if (next != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _focusSubmittedReport(next);
+          ref.read(highlightReportLocationProvider.notifier).state = null;
+        });
+      }
+    });
 
     return Scaffold(
       appBar: BeeconBrandedAppBar(
@@ -444,7 +576,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 behavior: HitTestBehavior.translucent,
                 child: const AiInsightBanner(),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: reportTapMode ? _cancelReportTapMode : _startReportTapMode,
+                  icon: Icon(
+                    reportTapMode
+                        ? Icons.close
+                        : Icons.report_problem_outlined,
+                    color: reportTapMode ? Colors.red : AppColors.primary,
+                  ),
+                  label: Text(
+                    reportTapMode ? 'Cancel report placement' : 'Report an issue',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      color: reportTapMode ? Colors.red : AppColors.primary,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: reportTapMode ? Colors.red : AppColors.primary,
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               Expanded(
                 child: GestureDetector(
                   onTap: () => closeLocationSearchDropdown(ref),
@@ -476,6 +637,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   ),
                                 ),
                                 onMapEvent: _onMapEvent,
+                                onTap: reportTapMode
+                                    ? (_, point) => _onReportMapTap(point)
+                                    : null,
                                 interactionOptions: const InteractionOptions(
                                   flags: InteractiveFlag.all,
                                 ),
@@ -508,25 +672,69 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   ),
                                 if (!heatmapOn)
                                   MarkerLayer(
-                                    markers: [
-                                      ..._buildAccessibilityMarkers(),
-                                      ..._buildReportMarkers(reports),
-                                      ..._buildRouteMarkers(
-                                        origin,
-                                        destination,
-                                      ),
-                                    ],
-                                  )
-                                else
-                                  MarkerLayer(
-                                    markers: _buildRouteMarkers(
+                                    markers: _buildAccessibilityMarkers(),
+                                  ),
+                                MarkerLayer(
+                                  markers: [
+                                    ..._buildReportMarkers(reports),
+                                    if (pendingReportPin != null)
+                                      _buildPendingReportPin(
+                                        pendingReportPin,
+                                      )!,
+                                    ..._buildRouteMarkers(
                                       origin,
                                       destination,
                                     ),
-                                  ),
+                                  ],
+                                ),
                               ],
                             ),
-                            if (destination == null)
+                            if (reportTapMode)
+                              Positioned(
+                                top: 12,
+                                left: 12,
+                                right: 12,
+                                child: Material(
+                                  elevation: 2,
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: AppColors.selectedBackground,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.touch_app,
+                                          color: AppColors.primary,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Tap the map to place your report',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                              color: AppColors.primary,
+                                            ),
+                                          ),
+                                        ),
+                                        GestureDetector(
+                                          onTap: _cancelReportTapMode,
+                                          child: const Icon(
+                                            Icons.close,
+                                            size: 18,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (destination == null && !reportTapMode)
                               Center(
                                 child: Container(
                                   margin: const EdgeInsets.all(24),

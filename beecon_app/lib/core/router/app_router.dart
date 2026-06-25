@@ -1,4 +1,5 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
+import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/features/auth/screens/splash_screen.dart';
 import 'package:beecon_app/features/auth/screens/onboarding_screen.dart';
@@ -9,6 +10,7 @@ import 'package:beecon_app/features/reports/screens/report_screen.dart';
 import 'package:beecon_app/features/profile/screens/profile_screen.dart';
 import 'package:beecon_app/features/profile/screens/saved_locations_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -63,8 +65,14 @@ final appRouter = GoRouter(
         ),
         GoRoute(
           path: AppConstants.report,
-          pageBuilder: (context, state) =>
-              _slidePage(state, const ReportScreen()),
+          pageBuilder: (context, state) {
+            final lat = double.tryParse(state.uri.queryParameters['lat'] ?? '');
+            final lng = double.tryParse(state.uri.queryParameters['lng'] ?? '');
+            return _slidePage(
+              state,
+              ReportScreen(lat: lat, lng: lng),
+            );
+          },
         ),
         GoRoute(
           path: AppConstants.profile,
@@ -82,7 +90,7 @@ final appRouter = GoRouter(
 );
 
 /// Shell that owns the branded bottom navigation bar shared across main tabs.
-class HomeShell extends StatelessWidget {
+class HomeShell extends ConsumerWidget {
   const HomeShell({super.key, required this.child});
 
   final Widget child;
@@ -95,21 +103,23 @@ class HomeShell extends StatelessWidget {
     return 0;
   }
 
-  void _onTap(BuildContext context, int index) {
+  void _onTap(BuildContext context, WidgetRef ref, int index) {
     switch (index) {
       case 0:
         context.go(AppConstants.home);
       case 1:
         context.go(AppConstants.routes);
       case 2:
-        context.go(AppConstants.report);
+        ref.read(reportTapModeProvider.notifier).state = true;
+        ref.read(pendingReportPinProvider.notifier).state = null;
+        context.go(AppConstants.home);
       case 3:
         context.go(AppConstants.profile);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final currentIndex = _currentIndex(context);
 
     return Scaffold(
@@ -135,28 +145,28 @@ class HomeShell extends StatelessWidget {
                   selectedIcon: Icons.home,
                   label: 'Home',
                   selected: currentIndex == 0,
-                  onTap: () => _onTap(context, 0),
+                  onTap: () => _onTap(context, ref, 0),
                 ),
                 _NavItem(
                   icon: Icons.route_outlined,
                   selectedIcon: Icons.route,
                   label: 'Routes',
                   selected: currentIndex == 1,
-                  onTap: () => _onTap(context, 1),
+                  onTap: () => _onTap(context, ref, 1),
                 ),
                 _NavItem(
                   icon: Icons.report_outlined,
                   selectedIcon: Icons.report,
                   label: 'Report',
                   selected: currentIndex == 2,
-                  onTap: () => _onTap(context, 2),
+                  onTap: () => _onTap(context, ref, 2),
                 ),
                 _NavItem(
                   icon: Icons.person_outline,
                   selectedIcon: Icons.person,
                   label: 'Profile',
                   selected: currentIndex == 3,
-                  onTap: () => _onTap(context, 3),
+                  onTap: () => _onTap(context, ref, 3),
                 ),
               ],
             ),

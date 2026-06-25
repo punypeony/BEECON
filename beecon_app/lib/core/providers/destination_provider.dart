@@ -26,6 +26,15 @@ final heatmapEnabledProvider = StateProvider<bool>((ref) => false);
 /// True while ORS routes are being fetched.
 final routesLoadingProvider = StateProvider<bool>((ref) => false);
 
+/// Map tap mode for placing a community report pin.
+final reportTapModeProvider = StateProvider<bool>((ref) => false);
+
+/// Pending report pin while user confirms location on the home map.
+final pendingReportPinProvider = StateProvider<LatLng?>((ref) => null);
+
+/// After submitting a report, home map moves to this point.
+final highlightReportLocationProvider = StateProvider<LatLng?>((ref) => null);
+
 enum ActiveSearchField { origin, destination }
 
 /// Which search bar currently owns the suggestions dropdown.
