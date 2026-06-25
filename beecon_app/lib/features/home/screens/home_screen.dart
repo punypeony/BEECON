@@ -1,10 +1,253 @@
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/features/home/data/bgc_accessibility_data.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final MapController _mapController = MapController();
+  final TextEditingController _searchController = TextEditingController();
+
+  LatLng? _currentLocation;
+  LatLng? _destination;
+  bool _locationLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initCurrentLocation();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initCurrentLocation() async {
+    try {
+      if (!kIsWeb) {
+        final status = await Permission.locationWhenInUse.request();
+        if (!status.isGranted) {
+          if (mounted) setState(() => _locationLoading = false);
+          return;
+        }
+      }
+
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) setState(() => _locationLoading = false);
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) setState(() => _locationLoading = false);
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      if (mounted) {
+        setState(() {
+          _currentLocation = LatLng(position.latitude, position.longitude);
+          _locationLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _locationLoading = false);
+    }
+  }
+
+  void _onMapTap(TapPosition tapPosition, LatLng point) {
+    setState(() => _destination = point);
+  }
+
+  void _onSearchSubmitted(String query) {
+    final match = BgcMapData.matchSearchDestination(query);
+    if (match == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No BGC destination found for "$query". Try High Street, SM Aura, or Uptown BGC.',
+            style: GoogleFonts.poppins(),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _destination = match);
+    _mapController.move(match, BgcMapData.defaultZoom);
+  }
+
+  void _showFeatureSheet(AccessibilityFeature feature) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                feature.name,
+                style: GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: BgcMapData.markerColorForType(feature.type)
+                      .withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  BgcMapData.typeLabel(feature.type),
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: BgcMapData.markerColorForType(feature.type),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Accessibility tip',
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                feature.accessibilityTip,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: Colors.grey[800],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<Marker> _buildAccessibilityMarkers() {
+    return BgcMapData.accessibilityFeatures.map((feature) {
+      final color = BgcMapData.markerColorForType(feature.type);
+      return Marker(
+        point: feature.position,
+        width: 28,
+        height: 28,
+        child: GestureDetector(
+          onTap: () => _showFeatureSheet(feature),
+          child: Container(
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 4,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  List<Marker> _buildOverlayMarkers() {
+    final markers = <Marker>[..._buildAccessibilityMarkers()];
+
+    if (_currentLocation != null) {
+      markers.add(
+        Marker(
+          point: _currentLocation!,
+          width: 22,
+          height: 22,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 4,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_destination != null) {
+      markers.add(
+        Marker(
+          point: _destination!,
+          width: 44,
+          height: 44,
+          alignment: Alignment.topCenter,
+          child: const Icon(
+            Icons.location_on,
+            color: AppColors.primary,
+            size: 44,
+          ),
+        ),
+      );
+    }
+
+    return markers;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +271,6 @@ class HomeScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Search bar placeholder
               Container(
                 height: 50,
                 decoration: BoxDecoration(
@@ -41,39 +283,100 @@ class HomeScreen extends StatelessWidget {
                     const SizedBox(width: 12),
                     const Icon(Icons.search, color: Colors.grey),
                     const SizedBox(width: 8),
-                    Text(
-                      'Search destination…',
-                      style: GoogleFonts.poppins(
-                        color: Colors.grey[500],
-                        fontSize: 14,
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        style: GoogleFonts.poppins(fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Search destination…',
+                          hintStyle: GoogleFonts.poppins(
+                            color: Colors.grey[500],
+                            fontSize: 14,
+                          ),
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: _onSearchSubmitted,
                       ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_forward, color: AppColors.primary),
+                      onPressed: () =>
+                          _onSearchSubmitted(_searchController.text),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
-              // Map placeholder
               Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD9D9D9),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.map_outlined, size: 64, color: Colors.grey[500]),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Map coming soon',
-                          style: GoogleFonts.poppins(
-                            color: Colors.grey[600],
-                            fontSize: 16,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: BgcMapData.center,
+                          initialZoom: BgcMapData.defaultZoom,
+                          onTap: _onMapTap,
+                          interactionOptions: const InteractionOptions(
+                            flags: InteractiveFlag.all,
                           ),
                         ),
-                      ],
-                    ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.beecon.beecon_app',
+                          ),
+                          PolygonLayer(
+                            polygons: [
+                              Polygon(
+                                points: BgcMapData.boundaryPolygon,
+                                color: BgcMapData.boundaryColor
+                                    .withValues(alpha: 0.3),
+                                borderColor: BgcMapData.boundaryColor,
+                                borderStrokeWidth: 2,
+                              ),
+                            ],
+                          ),
+                          MarkerLayer(markers: _buildOverlayMarkers()),
+                        ],
+                      ),
+                      if (_locationLoading)
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Locating…',
+                                  style: GoogleFonts.poppins(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
