@@ -4,15 +4,15 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 class GeminiService {
-  // gemini-1.5-flash was deprecated; use a current model ID.
   static const String _model = 'gemini-2.0-flash';
   static const String _baseUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent';
 
-  static const Duration _debounceDelay = Duration(milliseconds: 500);
+  static const Duration _preCallDelay = Duration(seconds: 1);
   static const Duration _rateLimitRetryDelay = Duration(seconds: 2);
 
-  DateTime? _lastCallAt;
+  String? _cacheKey;
+  String? _cachedResponse;
 
   Future<String> getAccessibilityInsight({
     required String mobilityProfile,
@@ -22,7 +22,20 @@ class GeminiService {
     required String origin,
     required String destination,
   }) async {
-    await _applyDebounce();
+    final cacheKey = _buildCacheKey(
+      mobilityProfile: mobilityProfile,
+      routeType: routeType,
+      accessibilityScore: accessibilityScore,
+      warnings: warnings,
+      origin: origin,
+      destination: destination,
+    );
+
+    if (_cacheKey == cacheKey && _cachedResponse != null) {
+      return _cachedResponse!;
+    }
+
+    await Future.delayed(_preCallDelay);
 
     final apiKey = dotenv.env['GEMINI_API_KEY'];
     if (apiKey == null || apiKey.isEmpty) {
@@ -54,7 +67,7 @@ Mention specific hazards and give one practical tip.
         } catch (_) {
           return _rateLimitFallback(accessibilityScore);
         }
-        if (response.statusCode != 200) {
+        if (response.statusCode == 429 || response.statusCode != 200) {
           return _rateLimitFallback(accessibilityScore);
         }
       } else if (response.statusCode != 200) {
@@ -63,25 +76,35 @@ Mention specific hazards and give one practical tip.
         );
       }
 
-      return _parseResponse(response);
+      final text = _parseResponse(response);
+      _cacheKey = cacheKey;
+      _cachedResponse = text;
+      return text;
     } catch (e) {
       rethrow;
     }
   }
 
-  Future<void> _applyDebounce() async {
-    final now = DateTime.now();
-    if (_lastCallAt != null) {
-      final elapsed = now.difference(_lastCallAt!);
-      if (elapsed < _debounceDelay) {
-        await Future.delayed(_debounceDelay - elapsed);
-      }
-    }
-    _lastCallAt = DateTime.now();
+  String _buildCacheKey({
+    required String mobilityProfile,
+    required String routeType,
+    required int accessibilityScore,
+    required List<String> warnings,
+    required String origin,
+    required String destination,
+  }) {
+    return [
+      mobilityProfile,
+      routeType,
+      accessibilityScore,
+      origin,
+      destination,
+      warnings.join('|'),
+    ].join('::');
   }
 
   String _rateLimitFallback(int score) =>
-      'Accessibility score: $score/100. Please check route warnings before proceeding.';
+      'Route scored $score/100. AI insight temporarily unavailable.';
 
   Future<http.Response> _postGenerateContent(String apiKey, String prompt) {
     return http.post(

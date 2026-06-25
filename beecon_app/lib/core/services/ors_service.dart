@@ -1,13 +1,44 @@
 import 'dart:convert';
 
 import 'package:beecon_app/features/routing/models/route_polylines.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 class OrsService {
-  static const String _baseUrl =
+  static const String _orsApiPath =
       'https://api.openrouteservice.org/v2/directions/foot-walking/geojson';
+
+  /// Builds request URL. Web uses corsproxy.io (API key in query string because
+  /// proxies often strip Authorization headers).
+  String _requestUrl(String apiKey) {
+    final orsUrl = '$_orsApiPath?api_key=${Uri.encodeQueryComponent(apiKey)}';
+    if (kIsWeb) {
+      return 'https://corsproxy.io/?${Uri.encodeComponent(orsUrl)}';
+    }
+    return orsUrl;
+  }
+
+  Map<String, String> _headers(String apiKey) {
+    if (kIsWeb) {
+      return {'Content-Type': 'application/json'};
+    }
+    return {
+      'Authorization': apiKey,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  String? _readApiKey() {
+    final apiKey = dotenv.env['ORS_API_KEY']?.trim();
+    if (apiKey == null ||
+        apiKey.isEmpty ||
+        apiKey == 'your_openrouteservice_key_here') {
+      return null;
+    }
+    return apiKey;
+  }
 
   /// Fetches a walking route polyline from OpenRouteService.
   /// Falls back to a straight line when the API is unavailable.
@@ -18,14 +49,12 @@ class OrsService {
     double destLng, {
     List<LatLng>? waypoints,
   }) async {
-    try {
-      final apiKey = dotenv.env['ORS_API_KEY'];
-      if (apiKey == null ||
-          apiKey.isEmpty ||
-          apiKey == 'your_openrouteservice_key_here') {
-        return _fallbackPolyline(originLat, originLng, destLat, destLng);
-      }
+    final apiKey = _readApiKey();
+    if (apiKey == null) {
+      return _fallbackPolyline(originLat, originLng, destLat, destLng);
+    }
 
+    try {
       final coordinates = <List<double>>[
         [originLng, originLat],
         ...?waypoints?.map((p) => [p.longitude, p.latitude]),
@@ -33,17 +62,14 @@ class OrsService {
       ];
 
       final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          'Authorization': apiKey,
-          'Content-Type': 'application/json',
-        },
+        Uri.parse(_requestUrl(apiKey)),
+        headers: _headers(apiKey),
         body: jsonEncode({'coordinates': coordinates}),
       );
 
       if (response.statusCode == 200) {
         final decoded = _decodeCoordinates(response.body);
-        if (decoded.isNotEmpty) return decoded;
+        if (decoded.length >= 2) return decoded;
       }
     } catch (_) {
       // Fall through to fallback.
@@ -59,77 +85,72 @@ class OrsService {
     double destLat,
     double destLng,
   ) async {
-    try {
-      final apiKey = dotenv.env['ORS_API_KEY'];
-      if (apiKey != null &&
-          apiKey.isNotEmpty &&
-          apiKey != 'your_openrouteservice_key_here') {
-        final response = await http.post(
-          Uri.parse(_baseUrl),
-          headers: {
-            'Authorization': apiKey,
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({
-            'coordinates': [
-              [originLng, originLat],
-              [destLng, destLat],
-            ],
-            'alternative_routes': {
-              'target_count': 2,
-              'share_factor': 0.5,
-            },
-          }),
-        );
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body) as Map<String, dynamic>;
-          final features = data['features'] as List<dynamic>?;
-          if (features != null && features.length >= 3) {
-            return RoutePolylines(
-              fastest: _coordsFromFeature(features[0]),
-              balanced: _coordsFromFeature(features[1]),
-              accessible: _coordsFromFeature(features[2]),
-            );
-          }
-          if (features != null && features.isNotEmpty) {
-            final primary = _coordsFromFeature(features[0]);
-            return RoutePolylines(
-              fastest: primary,
-              accessible: await getRoute(
-                originLat,
-                originLng,
-                destLat,
-                destLng,
-                waypoints: [
-                  LatLng(
-                    (originLat + destLat) / 2 + 0.0015,
-                    (originLng + destLng) / 2,
-                  ),
-                ],
-              ),
-              balanced: features.length > 1
-                  ? _coordsFromFeature(features[1])
-                  : await getRoute(
-                      originLat,
-                      originLng,
-                      destLat,
-                      destLng,
-                      waypoints: [
-                        LatLng(
-                          (originLat + destLat) / 2 - 0.0015,
-                          (originLng + destLng) / 2,
-                        ),
-                      ],
-                    ),
-            );
-          }
-        }
-      }
-    } catch (_) {
-      // Fall through.
+    final apiKey = _readApiKey();
+    if (apiKey == null) {
+      return _fallbackPolylines(originLat, originLng, destLat, destLng);
     }
 
+    try {
+      // Primary direct route (avoid alternative_routes — often fails on free tier).
+      final fastest = await getRoute(originLat, originLng, destLat, destLng);
+      final usedFallback = fastest.length == 12 &&
+          _isStraightFallback(fastest, originLat, originLng, destLat, destLng);
+
+      if (usedFallback) {
+        return _fallbackPolylines(originLat, originLng, destLat, destLng);
+      }
+
+      final midLat = (originLat + destLat) / 2;
+      final midLng = (originLng + destLng) / 2;
+
+      final accessible = await getRoute(
+        originLat,
+        originLng,
+        destLat,
+        destLng,
+        waypoints: [LatLng(midLat + 0.0018, midLng + 0.0012)],
+      );
+
+      final balanced = await getRoute(
+        originLat,
+        originLng,
+        destLat,
+        destLng,
+        waypoints: [LatLng(midLat - 0.0012, midLng - 0.0008)],
+      );
+
+      return RoutePolylines(
+        fastest: fastest,
+        accessible: accessible,
+        balanced: balanced,
+      );
+    } catch (_) {
+      return _fallbackPolylines(originLat, originLng, destLat, destLng);
+    }
+  }
+
+  bool _isStraightFallback(
+    List<LatLng> points,
+    double originLat,
+    double originLng,
+    double destLat,
+    double destLng,
+  ) {
+    if (points.length != 12) return false;
+    final first = points.first;
+    final last = points.last;
+    return (first.latitude - originLat).abs() < 0.0001 &&
+        (first.longitude - originLng).abs() < 0.0001 &&
+        (last.latitude - destLat).abs() < 0.0001 &&
+        (last.longitude - destLng).abs() < 0.0001;
+  }
+
+  RoutePolylines _fallbackPolylines(
+    double originLat,
+    double originLng,
+    double destLat,
+    double destLng,
+  ) {
     final direct = _fallbackPolyline(originLat, originLng, destLat, destLng);
     return RoutePolylines(
       fastest: direct,
@@ -140,15 +161,35 @@ class OrsService {
 
   List<LatLng> _decodeCoordinates(String body) {
     final data = jsonDecode(body) as Map<String, dynamic>;
+
+    if (data.containsKey('error')) {
+      return [];
+    }
+
     final features = data['features'] as List<dynamic>?;
     if (features == null || features.isEmpty) return [];
+
     return _coordsFromFeature(features.first);
   }
 
   List<LatLng> _coordsFromFeature(dynamic feature) {
     final geometry = feature['geometry'] as Map<String, dynamic>;
+    return _coordsFromGeometry(geometry);
+  }
+
+  List<LatLng> _coordsFromGeometry(Map<String, dynamic> geometry) {
+    final type = geometry['type'] as String? ?? 'LineString';
     final coords = geometry['coordinates'] as List<dynamic>;
-    return coords
+
+    List<dynamic> lineCoords;
+    if (type == 'MultiLineString') {
+      if (coords.isEmpty) return [];
+      lineCoords = coords.first as List<dynamic>;
+    } else {
+      lineCoords = coords;
+    }
+
+    return lineCoords
         .map(
           (c) => LatLng(
             (c[1] as num).toDouble(),
