@@ -216,19 +216,25 @@ class _RouteCard extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                _InfoChip(
-                  icon: Icons.straighten,
-                  label: '${route.distanceM} m',
+                Expanded(
+                  child: _InfoChip(
+                    icon: Icons.straighten,
+                    label: '${route.distanceM} m',
+                  ),
                 ),
                 const SizedBox(width: 12),
-                _InfoChip(
-                  icon: Icons.schedule,
-                  label: '${route.durationMin} min',
+                Expanded(
+                  child: _InfoChip(
+                    icon: Icons.schedule,
+                    label: '${route.durationMin} min',
+                  ),
                 ),
                 const SizedBox(width: 12),
-                _InfoChip(
-                  icon: Icons.signpost_outlined,
-                  label: '${route.segments.length} segments',
+                Expanded(
+                  child: _InfoChip(
+                    icon: Icons.signpost_outlined,
+                    label: '${route.segments.length} segments',
+                  ),
                 ),
               ],
             ),
@@ -402,13 +408,16 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 16, color: Colors.grey[600]),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[700]),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[700]),
+          ),
         ),
       ],
     );

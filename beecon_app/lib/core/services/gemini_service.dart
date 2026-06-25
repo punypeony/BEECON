@@ -9,6 +9,11 @@ class GeminiService {
   static const String _baseUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent';
 
+  static const Duration _debounceDelay = Duration(milliseconds: 500);
+  static const Duration _rateLimitRetryDelay = Duration(seconds: 2);
+
+  DateTime? _lastCallAt;
+
   Future<String> getAccessibilityInsight({
     required String mobilityProfile,
     required String routeType,
@@ -17,6 +22,8 @@ class GeminiService {
     required String origin,
     required String destination,
   }) async {
+    await _applyDebounce();
+
     final apiKey = dotenv.env['GEMINI_API_KEY'];
     if (apiKey == null || apiKey.isEmpty) {
       throw Exception('Missing GEMINI_API_KEY');
@@ -37,7 +44,47 @@ for this specific user profile. Maximum 3 sentences.
 Mention specific hazards and give one practical tip.
 """;
 
-    final response = await http.post(
+    try {
+      var response = await _postGenerateContent(apiKey, prompt);
+
+      if (response.statusCode == 429) {
+        await Future.delayed(_rateLimitRetryDelay);
+        try {
+          response = await _postGenerateContent(apiKey, prompt);
+        } catch (_) {
+          return _rateLimitFallback(accessibilityScore);
+        }
+        if (response.statusCode != 200) {
+          return _rateLimitFallback(accessibilityScore);
+        }
+      } else if (response.statusCode != 200) {
+        throw Exception(
+          'Gemini API error: ${response.statusCode} — ${response.body}',
+        );
+      }
+
+      return _parseResponse(response);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> _applyDebounce() async {
+    final now = DateTime.now();
+    if (_lastCallAt != null) {
+      final elapsed = now.difference(_lastCallAt!);
+      if (elapsed < _debounceDelay) {
+        await Future.delayed(_debounceDelay - elapsed);
+      }
+    }
+    _lastCallAt = DateTime.now();
+  }
+
+  String _rateLimitFallback(int score) =>
+      'Accessibility score: $score/100. Please check route warnings before proceeding.';
+
+  Future<http.Response> _postGenerateContent(String apiKey, String prompt) {
+    return http.post(
       Uri.parse('$_baseUrl?key=$apiKey'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -50,12 +97,9 @@ Mention specific hazards and give one practical tip.
         ],
       }),
     );
+  }
 
-    if (response.statusCode != 200) {
-      final body = response.body;
-      throw Exception('Gemini API error: ${response.statusCode} — $body');
-    }
-
+  String _parseResponse(http.Response response) {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final candidates = data['candidates'] as List<dynamic>?;
     if (candidates == null || candidates.isEmpty) {
