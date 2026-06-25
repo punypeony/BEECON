@@ -1,81 +1,52 @@
 # Beecon
 
-Beecon is an accessible navigation app for Bonifacio Global City (BGC), Philippines. It helps users with different mobility profiles find wheelchair-friendly routes, view accessibility hazards on a map, get AI-powered route insights via Gemini, and report community obstacles.
+Accessible navigation for Bonifacio Global City (BGC), Philippines — wheelchair-friendly routes, AI insights, community hazard reporting, and an interactive accessibility map.
 
-## How to Run
+## Quick Start
 
 ```bash
 cd beecon_app
 flutter pub get
+```
+
+Create `assets/.env`:
+
+```env
+GEMINI_API_KEY=your_key_here
+ORS_API_KEY=your_key_here
+```
+
+```bash
 flutter run -d chrome
 ```
 
-Create `assets/.env` with your API keys (see below), then hot restart the app.
+Hot **restart** after changing `.env`.
+
+## Documentation
+
+**Full project documentation:** [DOCUMENTATION.md](./DOCUMENTATION.md)
+
+Covers planning (including **Bob IBM** for project structure), architecture, every feature, state management, APIs, setup, demo flows, and troubleshooting.
+
+## Highlights
+
+| Feature | Description |
+|---------|-------------|
+| Map search | Dual origin/destination bars with 20 BGC landmarks |
+| Routing | 3 walking polylines (OSRM on web) + accessibility-scored route cards |
+| AI insights | Gemini 2.0 Flash, profile-aware route assessments |
+| Reports | Tap map to pin location → submit hazard to local Hive storage |
+| Profiles | Wheelchair, Senior, Stroller, Luggage, Injury, General |
 
 ## API Keys
 
-### Gemini API (AI accessibility insights)
+| Service | Purpose | Sign up |
+|---------|---------|---------|
+| Gemini | AI accessibility insights | [Google AI Studio](https://aistudio.google.com/apikey) |
+| OpenRouteService | Mobile walking polylines (optional on web) | [openrouteservice.org](https://openrouteservice.org/) |
 
-1. Visit [Google AI Studio](https://aistudio.google.com/apikey)
-2. Create an API key
-3. Add to `assets/.env`:
-   ```
-   GEMINI_API_KEY=your_key_here
-   ```
+On Flutter Web, **OSRM** provides routing without a key. ORS is used on mobile when configured.
 
-### OpenRouteService (walking route polylines)
+## License
 
-1. Sign up at [openrouteservice.org](https://openrouteservice.org/)
-2. Create an API key
-3. Add to `assets/.env`:
-   ```
-   ORS_API_KEY=your_key_here
-   ```
-
-On **Flutter Web**, walking routes use the public [OSRM](https://project-osrm.org/) API (no key required, CORS-friendly). On mobile, ORS is used when a valid key is set; otherwise OSRM is used. Straight-line routes only appear if all routing providers fail.
-
-## Architecture Overview
-
-```
-beecon_app/
-├── lib/
-│   ├── core/
-│   │   ├── constants/       # App routes, asset paths
-│   │   ├── providers/       # Riverpod state (origin, destination, polylines)
-│   │   ├── router/          # GoRouter navigation + slide transitions
-│   │   ├── services/        # GeminiService, OrsService
-│   │   ├── storage/         # Hive local persistence
-│   │   └── theme/           # Beecon orange branding
-│   ├── features/
-│   │   ├── auth/            # Splash, onboarding, profile selection
-│   │   ├── home/            # BGC map, search, heatmap, emergency
-│   │   ├── routing/         # Route generation, results, AI insights
-│   │   ├── reports/         # Community hazard reporting
-│   │   └── profile/         # Mobility profile, saved locations
-│   └── main.dart
-└── assets/
-    ├── .env                 # API keys (not committed)
-    └── images/
-```
-
-**Key flows:**
-- **Home** — Dual search (origin/destination), ORS polylines on map, heatmap toggle, emergency FAB
-- **Routes** — Three route options scored for accessibility; Gemini generates profile-aware insights
-- **Report** — Local Hive storage for community hazard reports shown on the map
-- **Profile** — Mobility profile stored in SharedPreferences affects AI insight tone
-
-## Team Members
-
-| Name | Role |
-|------|------|
-| _Add team member_ | _Role_ |
-| _Add team member_ | _Role_ |
-| _Add team member_ | _Role_ |
-
-_Update this section with your team's names and roles._
-
-## Demo Flows
-
-1. **Wheelchair user** — Select Wheelchair profile → Origin: High Street BGC → Destination: SM Aura → Get Routes → View 3 polylines → Select Most Accessible → Read Gemini insight
-2. **Senior citizen** — Submit broken elevator report at Uptown BGC → See red marker → Upvote → Community Verified badge
-3. **General user** — Toggle heatmap → View BGC accessibility zones → Tap emergency shield → Copy GPS coordinates
+Private / academic project — update as needed.
