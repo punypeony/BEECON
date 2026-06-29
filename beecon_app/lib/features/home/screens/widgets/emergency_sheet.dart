@@ -1,4 +1,7 @@
 import 'package:beecon_app/core/providers/destination_provider.dart';
+import 'package:beecon_app/features/home/data/bgc_accessibility_data.dart';
+import 'package:beecon_app/features/routing/models/route_location.dart';
+import 'package:beecon_app/features/routing/services/safety_scorer.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +17,9 @@ void showEmergencySheet(BuildContext context, WidgetRef ref) {
     ),
     builder: (context) {
       final gps = ref.read(currentGpsLocationProvider);
+      final refLat = gps?.latitude ?? BgcMapData.center.latitude;
+      final refLng = gps?.longitude ?? BgcMapData.center.longitude;
+      final nearest = SafetyScorer.nearestSecurityPost(refLat, refLng);
       final coords = gps != null
           ? '${gps.latitude.toStringAsFixed(6)}, ${gps.longitude.toStringAsFixed(6)}'
           : 'Location unavailable';
@@ -86,6 +92,78 @@ void showEmergencySheet(BuildContext context, WidgetRef ref) {
               ),
             ),
             const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.security, color: Colors.green, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Nearest Security Post',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          nearest.post.name,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '${nearest.distanceM} m away',
+                          style: GoogleFonts.poppins(
+                            fontSize: 13,
+                            color: Colors.green[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  ref.read(selectedDestinationProvider.notifier).state =
+                      RouteLocation(
+                    label: nearest.post.name,
+                    lat: nearest.post.lat,
+                    lng: nearest.post.lng,
+                  );
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Navigating to ${nearest.post.name}',
+                        style: GoogleFonts.poppins(),
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.navigation, color: AppColors.primary),
+                label: Text(
+                  'Navigate to nearest security post',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(

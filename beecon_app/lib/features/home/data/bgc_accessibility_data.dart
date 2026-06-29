@@ -9,6 +9,26 @@ enum AccessibilityFeatureType {
   tactile,
 }
 
+enum SafetyZoneLevel { safe, moderate, alert }
+
+class SafetyZone {
+  const SafetyZone({
+    required this.name,
+    required this.lat,
+    required this.lng,
+    required this.level,
+    required this.radiusM,
+  });
+
+  final String name;
+  final double lat;
+  final double lng;
+  final SafetyZoneLevel level;
+  final double radiusM;
+
+  LatLng get position => LatLng(lat, lng);
+}
+
 class AccessibilityFeature {
   const AccessibilityFeature({
     required this.id,
@@ -190,6 +210,83 @@ class BgcMapData {
       case AccessibilityFeatureType.construction:
         return const Color(0xFFFF8A00);
       case AccessibilityFeatureType.stairs:
+        return const Color(0xFFF44336);
+    }
+  }
+
+  static const List<SafetyZone> safetyZones = [
+    SafetyZone(
+      name: 'High Street',
+      lat: 14.5512,
+      lng: 121.0489,
+      level: SafetyZoneLevel.safe,
+      radiusM: 120,
+    ),
+    SafetyZone(
+      name: '5th Avenue',
+      lat: 14.5535,
+      lng: 121.0498,
+      level: SafetyZoneLevel.safe,
+      radiusM: 100,
+    ),
+    SafetyZone(
+      name: 'Bonifacio Drive',
+      lat: 14.5545,
+      lng: 121.0465,
+      level: SafetyZoneLevel.safe,
+      radiusM: 110,
+    ),
+    SafetyZone(
+      name: 'Burgos Circle Park',
+      lat: 14.5517,
+      lng: 121.0446,
+      level: SafetyZoneLevel.moderate,
+      radiusM: 90,
+    ),
+    SafetyZone(
+      name: 'BGC Side Streets',
+      lat: 14.5525,
+      lng: 121.0520,
+      level: SafetyZoneLevel.moderate,
+      radiusM: 80,
+    ),
+    SafetyZone(
+      name: 'Track 30th Park',
+      lat: 14.5538,
+      lng: 121.0512,
+      level: SafetyZoneLevel.moderate,
+      radiusM: 75,
+    ),
+    SafetyZone(
+      name: 'BGC Perimeter Road',
+      lat: 14.5480,
+      lng: 121.0420,
+      level: SafetyZoneLevel.alert,
+      radiusM: 100,
+    ),
+    SafetyZone(
+      name: 'Parking Areas',
+      lat: 14.5490,
+      lng: 121.0565,
+      level: SafetyZoneLevel.alert,
+      radiusM: 85,
+    ),
+    SafetyZone(
+      name: 'C5 Service Road',
+      lat: 14.5465,
+      lng: 121.0590,
+      level: SafetyZoneLevel.alert,
+      radiusM: 90,
+    ),
+  ];
+
+  static Color heatmapColorForSafetyLevel(SafetyZoneLevel level) {
+    switch (level) {
+      case SafetyZoneLevel.safe:
+        return const Color(0xFF4CAF50);
+      case SafetyZoneLevel.moderate:
+        return const Color(0xFFFF8A00);
+      case SafetyZoneLevel.alert:
         return const Color(0xFFF44336);
     }
   }

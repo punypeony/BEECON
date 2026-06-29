@@ -26,7 +26,11 @@ Hot **restart** after changing `.env`.
 
 **Full project documentation:** [DOCUMENTATION.md](./DOCUMENTATION.md)
 
-Covers planning (including **Bob IBM** for project structure), architecture, every feature, state management, APIs, setup, demo flows, and troubleshooting.
+**System architecture:** [SYSTEM_ARCHITECTURE.docs](./SYSTEM_ARCHITECTURE.docs)
+
+**User flow diagrams:** [USER_FLOW_DIAGRAM.docs](./USER_FLOW_DIAGRAM.docs)
+
+**Project brief:** [PROJECT_BRIEF.docs](./PROJECT_BRIEF.docs)
 
 ## Highlights
 

@@ -20,8 +20,11 @@ final routePolylinesProvider = StateProvider<RoutePolylines?>((ref) => null);
 /// Which route line is highlighted on the map (width 7 vs 5).
 final highlightedRouteTypeProvider = StateProvider<RouteType?>((ref) => null);
 
-/// Whether accessibility heatmap circles are shown.
-final heatmapEnabledProvider = StateProvider<bool>((ref) => false);
+/// Which heatmap overlay is active on the home map.
+enum HeatmapOverlay { accessibility, safety }
+
+/// Active heatmap overlay, or null when heatmap is hidden.
+final heatmapOverlayProvider = StateProvider<HeatmapOverlay?>((ref) => null);
 
 /// True while ORS routes are being fetched.
 final routesLoadingProvider = StateProvider<bool>((ref) => false);

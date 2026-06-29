@@ -1,18 +1,25 @@
 import 'dart:convert';
 
 import 'package:beecon_app/features/routing/services/accessibility_scorer.dart';
+import 'package:beecon_app/features/routing/services/safety_scorer.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 class GeminiInsightResult {
   const GeminiInsightResult({
     required this.text,
+    required this.accessibilityInsight,
+    required this.safetyTip,
     required this.eventDetected,
+    required this.safetyAdvisoryDetected,
     required this.webSearchUsed,
   });
 
   final String text;
+  final String accessibilityInsight;
+  final String safetyTip;
   final bool eventDetected;
+  final bool safetyAdvisoryDetected;
   final bool webSearchUsed;
 }
 
@@ -41,6 +48,7 @@ class GeminiService {
     required String mobilityProfile,
     required String routeType,
     required int accessibilityScore,
+    required int safetyScore,
     required List<String> warnings,
     required String origin,
     required String destination,
@@ -51,6 +59,7 @@ class GeminiService {
       mobilityProfile: mobilityProfile,
       routeType: routeType,
       accessibilityScore: accessibilityScore,
+      safetyScore: safetyScore,
       warnings: warnings,
       origin: origin,
       destination: destination,
@@ -72,6 +81,7 @@ class GeminiService {
       mobilityProfile: mobilityProfile,
       routeType: routeType,
       accessibilityScore: accessibilityScore,
+      safetyScore: safetyScore,
       warnings: warnings,
       origin: origin,
       destination: destination,
@@ -93,10 +103,16 @@ class GeminiService {
       }
 
       final text = _parseResponse(response);
+      final parsed = _parseInsightSections(text);
       final eventDetected = AccessibilityScorer.detectEventActivity(text);
+      final safetyAdvisoryDetected = SafetyScorer.detectSafetyAdvisory(text);
+
       final result = GeminiInsightResult(
         text: text,
+        accessibilityInsight: parsed.accessibility,
+        safetyTip: parsed.safety,
         eventDetected: eventDetected,
+        safetyAdvisoryDetected: safetyAdvisoryDetected,
         webSearchUsed: true,
       );
 
@@ -108,9 +124,17 @@ class GeminiService {
         text: buildFallbackInsight(
           adjustedScore: accessibilityScore,
           mobilityProfile: mobilityProfile,
+          safetyScore: safetyScore,
           timeAdjustmentReasons: timeAdjustmentReasons,
         ),
+        accessibilityInsight: buildFallbackAccessibilityInsight(
+          adjustedScore: accessibilityScore,
+          mobilityProfile: mobilityProfile,
+          timeAdjustmentReasons: timeAdjustmentReasons,
+        ),
+        safetyTip: buildFallbackSafetyTip(safetyScore, mobilityProfile),
         eventDetected: false,
+        safetyAdvisoryDetected: false,
         webSearchUsed: false,
       );
     }
@@ -119,20 +143,44 @@ class GeminiService {
   String buildFallbackInsight({
     required int adjustedScore,
     required String mobilityProfile,
+    required int safetyScore,
+    required List<String> timeAdjustmentReasons,
+  }) {
+    return '${buildFallbackAccessibilityInsight(
+      adjustedScore: adjustedScore,
+      mobilityProfile: mobilityProfile,
+      timeAdjustmentReasons: timeAdjustmentReasons,
+    )} ${buildFallbackSafetyTip(safetyScore, mobilityProfile)}';
+  }
+
+  String buildFallbackAccessibilityInsight({
+    required int adjustedScore,
+    required String mobilityProfile,
     required List<String> timeAdjustmentReasons,
   }) {
     final reasonText = timeAdjustmentReasons.isEmpty
         ? ''
         : '${timeAdjustmentReasons.join('. ')}.';
-    return 'Score: $adjustedScore/100 for $mobilityProfile profile.'
+    return 'Accessibility score: $adjustedScore/100 for $mobilityProfile profile.'
         '${reasonText.isNotEmpty ? ' $reasonText' : ''} '
         'AI web search temporarily unavailable.';
+  }
+
+  String buildFallbackSafetyTip(int safetyScore, String mobilityProfile) {
+    if (safetyScore >= 80) {
+      return 'Route appears safe for $mobilityProfile users at this time.';
+    }
+    if (safetyScore >= 50) {
+      return 'Exercise caution — stay aware of surroundings on this route.';
+    }
+    return 'Stay alert — consider traveling with a companion if possible.';
   }
 
   String _buildPrompt({
     required String mobilityProfile,
     required String routeType,
     required int accessibilityScore,
+    required int safetyScore,
     required List<String> warnings,
     required String origin,
     required String destination,
@@ -155,6 +203,7 @@ User mobility profile: $mobilityProfile
 Route: $origin to $destination
 Route type: $routeType
 Base accessibility score: $accessibilityScore/100
+Safety score: $safetyScore/100
 Detected warnings: ${warnings.join(', ')}
 Current date and time: $dayOfWeek, $date at $time
 
@@ -163,23 +212,57 @@ First, search the web for:
    happening in BGC today that may affect pedestrian
    accessibility or crowd levels
 2. Any road closures or construction updates in BGC
+3. Recent crime reports or safety incidents in BGC
+4. Any unsafe areas or advisories in BGC today
+5. Street lighting conditions along major BGC roads
 
-Then give a context-aware accessibility insight in
-maximum 3 sentences:
-- Mention the score and what it means for this profile
-- Mention any relevant events or crowd conditions found
-- Give one practical tip for this specific user
+Then respond in exactly this format:
 
-If no events are found just focus on the route
-and time-of-day crowd patterns.
+ACCESSIBILITY: (max 2 sentences — mention the accessibility score,
+what it means for this profile, and any events or crowd conditions)
+
+SAFETY: (one practical safety tip based on web search results;
+if nothing concerning is found, confirm the route appears safe
+for $mobilityProfile users)
+
+Based on what you find, add one safety tip to your insight.
+If nothing concerning is found, confirm the route appears safe
+for $mobilityProfile.
 Keep it friendly and direct.
 """;
+  }
+
+  ({String accessibility, String safety}) _parseInsightSections(String text) {
+    final accessibilityMatch = RegExp(
+      r'ACCESSIBILITY:\s*(.*?)(?=SAFETY:|$)',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(text);
+
+    final safetyMatch = RegExp(
+      r'SAFETY:\s*(.*)',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(text);
+
+    if (accessibilityMatch != null && safetyMatch != null) {
+      return (
+        accessibility: accessibilityMatch.group(1)!.trim(),
+        safety: safetyMatch.group(1)!.trim(),
+      );
+    }
+
+    return (
+      accessibility: text.trim(),
+      safety: 'Stay aware of your surroundings while traveling.',
+    );
   }
 
   String _buildCacheKey({
     required String mobilityProfile,
     required String routeType,
     required int accessibilityScore,
+    required int safetyScore,
     required List<String> warnings,
     required String origin,
     required String destination,
@@ -189,6 +272,7 @@ Keep it friendly and direct.
       mobilityProfile,
       routeType,
       accessibilityScore,
+      safetyScore,
       origin,
       destination,
       warnings.join('|'),

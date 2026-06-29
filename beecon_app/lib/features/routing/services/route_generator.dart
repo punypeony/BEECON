@@ -1,7 +1,9 @@
 import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/models/route_segment_model.dart';
+import 'package:beecon_app/features/routing/models/safety_score_model.dart';
 import 'package:beecon_app/features/routing/services/accessibility_scorer.dart';
+import 'package:beecon_app/features/routing/services/safety_scorer.dart';
 import 'package:latlong2/latlong.dart';
 
 class RouteGenerator {
@@ -76,6 +78,7 @@ class RouteGenerator {
     final durationMin = (distanceM / 75).ceil().clamp(5, 45);
     final baseScore = AccessibilityScorer.averageSegmentScore(segments);
     final contextScore = AccessibilityScorer.buildContextScore(baseScore);
+    final safetyScore = _buildSafetyScore(origin, destination);
 
     return RouteModel(
       id: 'route-fastest-${origin.label.hashCode}-${destination.label.hashCode}',
@@ -83,6 +86,7 @@ class RouteGenerator {
       segments: segments,
       baseScore: baseScore,
       contextScore: contextScore,
+      safetyScore: safetyScore,
       totalScore: contextScore.adjustedScore,
       distanceM: distanceM,
       durationMin: durationMin,
@@ -144,6 +148,7 @@ class RouteGenerator {
     final durationMin = (distanceM / 65).ceil().clamp(8, 50);
     final baseScore = AccessibilityScorer.averageSegmentScore(segments);
     final contextScore = AccessibilityScorer.buildContextScore(baseScore);
+    final safetyScore = _buildSafetyScore(origin, destination);
 
     return RouteModel(
       id: 'route-accessible-${origin.label.hashCode}-${destination.label.hashCode}',
@@ -151,6 +156,7 @@ class RouteGenerator {
       segments: segments,
       baseScore: baseScore,
       contextScore: contextScore,
+      safetyScore: safetyScore,
       totalScore: contextScore.adjustedScore,
       distanceM: distanceM,
       durationMin: durationMin,
@@ -198,6 +204,7 @@ class RouteGenerator {
     final durationMin = (distanceM / 70).ceil().clamp(6, 45);
     final baseScore = AccessibilityScorer.averageSegmentScore(segments);
     final contextScore = AccessibilityScorer.buildContextScore(baseScore);
+    final safetyScore = _buildSafetyScore(origin, destination);
 
     return RouteModel(
       id: 'route-balanced-${origin.label.hashCode}-${destination.label.hashCode}',
@@ -205,6 +212,7 @@ class RouteGenerator {
       segments: segments,
       baseScore: baseScore,
       contextScore: contextScore,
+      safetyScore: safetyScore,
       totalScore: contextScore.adjustedScore,
       distanceM: distanceM,
       durationMin: durationMin,
@@ -218,6 +226,21 @@ class RouteGenerator {
 
   static double _midpoint(double start, double end, {double factor = 0.5}) {
     return start + (end - start) * factor;
+  }
+
+  static SafetyScoreModel _buildSafetyScore(
+    RouteLocation origin,
+    RouteLocation destination,
+  ) {
+    final midLat = _midpoint(origin.lat, destination.lat);
+    final midLng = _midpoint(origin.lng, destination.lng);
+
+    return SafetyScorer.buildSafetyScore(
+      midLat: midLat,
+      midLng: midLng,
+      originLabel: origin.label,
+      destinationLabel: destination.label,
+    );
   }
 
   static RouteSegmentModel _segment(

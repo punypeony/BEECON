@@ -1,0 +1,519 @@
+# Beecon — System Architecture
+
+**Accessible navigation for Bonifacio Global City (BGC), Philippines**
+
+This document describes the technical architecture of the Beecon Flutter app: layers, components, data flows, external services, and local persistence. Render Mermaid diagrams in GitHub, [Mermaid Live Editor](https://mermaid.live), or VS Code.
+
+Related docs: [PROJECT_BRIEF.docs](./PROJECT_BRIEF.docs) · [USER_FLOW_DIAGRAM.docs](./USER_FLOW_DIAGRAM.docs) · [DOCUMENTATION.md](./DOCUMENTATION.md)
+
+---
+
+## 1. Architecture Overview
+
+Beecon is a **client-only Flutter application** targeting Web (primary demo), Android, and iOS. There is no custom backend. The app combines:
+
+- **On-device logic** — accessibility scoring, safety scoring, route card generation, BGC map data
+- **External APIs** — walking route geometry (OSRM / OpenRouteService), AI insights (Gemini)
+- **Local persistence** — Hive (reports, saved routes, saved locations), SharedPreferences (profile, AI banner state)
+- **Device services** — GPS (Geolocator), connectivity checks, phone dialer (emergency)
+
+### Architecture Style
+
+| Pattern | Usage |
+|---------|--------|
+| **Feature-first modules** | `lib/features/{auth,home,routing,reports,profile}` |
+| **Core shared layer** | `lib/core/{router,services,providers,storage,theme,widgets}` |
+| **Unidirectional data flow** | UI → Riverpod providers → services → models → UI |
+| **Offline-first reports** | Community reports stored locally in Hive |
+| **Hybrid routing** | Real polylines from OSRM/ORS; scored route metadata from local generator |
+
+---
+
+## 2. High-Level System Context
+
+```mermaid
+flowchart TB
+    subgraph User["User"]
+        U[Pedestrian in BGC]
+    end
+
+    subgraph BeeconApp["Beecon Flutter App"]
+        UI[Screens & Widgets]
+        STATE[Riverpod State]
+        SCORE[Scoring Engine]
+        STORE[Local Storage]
+    end
+
+    subgraph Device["Device / Browser"]
+        GPS[Geolocator]
+        NET[Connectivity]
+        TEL[Phone Dialer]
+        MAPTILES[OpenStreetMap Tiles]
+    end
+
+    subgraph External["External APIs"]
+        OSRM[OSRM Router<br/>router.project-osrm.org]
+        ORS[OpenRouteService<br/>foot-walking]
+        GEMINI[Google Gemini 2.0 Flash<br/>+ Web Search]
+    end
+
+    U --> UI
+    UI --> STATE
+    STATE --> SCORE
+    STATE --> STORE
+    UI --> GPS
+    UI --> NET
+    UI --> TEL
+    UI --> MAPTILES
+    UI --> OSRM
+    UI --> ORS
+    UI --> GEMINI
+    SCORE --> UI
+    STORE --> UI
+```
+
+---
+
+## 3. Application Layer Model
+
+```mermaid
+flowchart TB
+    subgraph Presentation["Presentation Layer"]
+        direction TB
+        ROUTER[GoRouter + HomeShell<br/>Bottom Nav]
+        SCREENS[Screens<br/>Splash · Onboarding · Home · Routes · Report · Profile]
+        WIDGETS[Shared Widgets<br/>Branding · Search · Heatmap · Emergency]
+    end
+
+    subgraph State["State Layer — Riverpod"]
+        PROV[destination_provider.dart<br/>Origin · Destination · Polylines · Heatmap · Report tap mode]
+    end
+
+    subgraph Domain["Domain / Business Logic"]
+        RG[RouteGenerator]
+        AS[AccessibilityScorer]
+        SS[SafetyScorer]
+        BGC[BGC Static Data<br/>Destinations · Features · Safety Zones]
+    end
+
+    subgraph Services["Service Layer"]
+        ORS_SVC[OrsService]
+        GEM_SVC[GeminiService]
+    end
+
+    subgraph Data["Data Layer"]
+        HIVE[HiveService<br/>reports · saved_routes · saved_locations]
+        PREFS[SharedPreferences<br/>Profile · AI insight cache]
+        ENV[assets/.env<br/>API keys]
+    end
+
+    ROUTER --> SCREENS
+    SCREENS --> WIDGETS
+    SCREENS --> PROV
+    PROV --> SCREENS
+    SCREENS --> RG
+    SCREENS --> ORS_SVC
+    SCREENS --> GEM_SVC
+    RG --> AS
+    RG --> SS
+    RG --> BGC
+    SS --> BGC
+    AS --> BGC
+    ORS_SVC --> ENV
+    GEM_SVC --> ENV
+    SCREENS --> HIVE
+    SCREENS --> PREFS
+```
+
+---
+
+## 4. Module Structure
+
+```
+beecon_app/lib/
+├── main.dart                          # Bootstrap: dotenv, Hive, ProviderScope
+├── core/
+│   ├── constants/app_constants.dart   # Routes, keys, asset paths
+│   ├── router/app_router.dart         # GoRouter + HomeShell bottom nav
+│   ├── providers/destination_provider.dart  # Global navigation & map state
+│   ├── services/
+│   │   ├── ors_service.dart           # OSRM (web) / ORS (mobile) polylines
+│   │   └── gemini_service.dart        # AI accessibility + safety insights
+│   ├── storage/
+│   │   ├── hive_service.dart          # Hive boxes + connectivity check
+│   │   └── ai_insight_storage.dart    # SharedPreferences AI banner
+│   ├── theme/app_theme.dart
+│   └── widgets/beecon_branding.dart
+└── features/
+    ├── auth/          # Splash, onboarding, mobility profile selection
+    ├── home/          # Map, search, heatmaps, emergency, report tap mode
+    ├── routing/       # Route models, scorers, results screen
+    ├── reports/       # Community hazard reporting
+    └── profile/       # User profile, saved locations
+```
+
+---
+
+## 5. Navigation Architecture
+
+```mermaid
+flowchart LR
+    SPLASH["/splash"] --> ONBOARD["/onboarding"]
+    ONBOARD --> PROFILE["/profile-select"]
+    PROFILE --> HOME
+
+    subgraph Shell["ShellRoute — Bottom Navigation"]
+        HOME["/home<br/>HomeScreen"]
+        ROUTES["/routes<br/>RouteResultsScreen"]
+        REPORT["/report?lat=&lng=<br/>ReportScreen"]
+        USERPROFILE["/profile<br/>ProfileScreen"]
+    end
+
+    USERPROFILE --> SAVED["/saved-locations<br/>SavedLocationsScreen"]
+    HOME <-->|Routes tab| ROUTES
+    HOME -->|Report tab enables map tap| HOME
+```
+
+**HomeShell** wraps the four main tabs and owns the branded bottom navigation bar. Report flow uses a two-step pattern: map tap on Home → query params to Report screen.
+
+---
+
+## 6. Routing & Scoring Pipeline
+
+Beecon separates **map geometry** (from routing APIs) from **route intelligence** (computed locally).
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Home as HomeScreen
+    participant ORS as OrsService
+    participant OSRM as OSRM / ORS API
+    participant Prov as Riverpod Providers
+    participant Results as RouteResultsScreen
+    participant Gen as RouteGenerator
+    participant A11y as AccessibilityScorer
+    participant Safe as SafetyScorer
+    participant AI as GeminiService
+
+    User->>Home: Select origin + destination
+    User->>Home: Tap "Get Routes"
+    Home->>ORS: getAllRoutes(origin, dest)
+    ORS->>OSRM: foot-walking request
+    OSRM-->>ORS: 3 polylines (fastest, accessible, balanced)
+    ORS-->>Prov: RoutePolylines
+    Home->>Results: Navigate /routes
+
+    Results->>Gen: generateBgcRoutes(origin, dest)
+    Gen->>A11y: buildContextScore(segment scores)
+    Gen->>Safe: buildSafetyScore(midpoint, labels)
+    Gen-->>Results: 3 RouteModel cards
+
+    User->>Results: Select route
+    Results->>AI: getAccessibilityInsight(profile, scores, warnings)
+    AI-->>Results: Accessibility + Safety insight
+    Results->>Results: Apply event / safety advisory penalties
+```
+
+### RouteModel Composition
+
+| Field | Source |
+|-------|--------|
+| `segments` | Local segment features (ramps, stairs, construction, etc.) |
+| `baseScore` | Average segment accessibility score |
+| `contextScore` | Time/crowd-adjusted accessibility (`ContextScoreModel`) |
+| `safetyScore` | Time, crowd, security proximity, lighting (`SafetyScoreModel`) |
+| `totalScore` | Adjusted accessibility score |
+| `overallScore` | Average of accessibility + safety |
+| `distanceM`, `durationMin` | Estimated from Haversine + heuristics |
+| Polylines on map | OSRM/ORS (independent of card metadata) |
+
+---
+
+## 7. Dual Scoring Engine
+
+```mermaid
+flowchart LR
+    subgraph Inputs["Inputs"]
+        TIME[Device Clock]
+        CROWD[Time-of-Day Crowd Rules]
+        SEG[Route Segment Features]
+        MID[Route Midpoint Lat/Lng]
+        LABELS[Origin / Destination Names]
+        GPS[Security Post Coordinates]
+    end
+
+    subgraph Accessibility["AccessibilityScorer"]
+        BASE[Base Segment Score]
+        CTX[Context Adjustments<br/>Rush · Lunch · Weekend · Quiet]
+        EVT_A[Event Penalty -10<br/>from Gemini keywords]
+    end
+
+    subgraph Safety["SafetyScorer"]
+        TIME_A[Time-of-Day<br/>Evening · Night · Late Night]
+        DAY_A[Day-of-Week<br/>Fri/Sat/Sun night]
+        CROWD_A[Crowd / Empty Streets]
+        SEC[Security Post Distance<br/>Haversine · 4 BGC posts]
+        LIGHT[Street Lighting Heuristic<br/>Main roads vs side streets]
+        EVT_S[Event Penalty -10]
+        GEM_A[Gemini Advisory -15<br/>crime · unsafe · dark keywords]
+    end
+
+    SEG --> BASE
+    BASE --> CTX
+    TIME --> CTX
+    CROWD --> CTX
+    CTX --> EVT_A
+
+    TIME --> TIME_A
+    TIME --> DAY_A
+    CROWD --> CROWD_A
+    MID --> SEC
+    GPS --> SEC
+    LABELS --> LIGHT
+    TIME --> LIGHT
+    TIME_A --> SAFETY_OUT[SafetyScoreModel<br/>0–100 · risk level]
+    DAY_A --> SAFETY_OUT
+    CROWD_A --> SAFETY_OUT
+    SEC --> SAFETY_OUT
+    LIGHT --> SAFETY_OUT
+    EVT_S --> SAFETY_OUT
+    GEM_A --> SAFETY_OUT
+
+    CTX --> A11Y_OUT[ContextScoreModel<br/>adjusted score + reasons]
+    EVT_A --> A11Y_OUT
+```
+
+---
+
+## 8. AI Insight Architecture
+
+```mermaid
+flowchart TB
+    SELECT[User selects route] --> CHECK{Internet?}
+    CHECK -->|No| FALLBACK[Fallback insight<br/>time context + scores]
+    CHECK -->|Yes| GEMINI[GeminiService.getAccessibilityInsight]
+
+    GEMINI --> PROMPT[Prompt with profile,<br/>route, scores, warnings, time]
+    PROMPT --> WEB[Web Search Tool<br/>events · construction · crime · lighting]
+    WEB --> PARSE[Parse ACCESSIBILITY: / SAFETY: sections]
+
+    PARSE --> EVENT{Event keywords?}
+    PARSE --> ADV{Safety keywords?}
+
+    EVENT -->|Yes| PEN_A[-10 accessibility<br/>-10 safety]
+    ADV -->|Yes| PEN_S[-15 safety<br/>Safety advisory flag]
+
+    PARSE --> CACHE[In-memory cache<br/>+ SharedPreferences banner]
+    PEN_A --> UI[Route Results AI Card]
+    PEN_S --> UI
+    CACHE --> UI
+    FALLBACK --> UI
+```
+
+**Gemini model:** `gemini-2.0-flash` with optional `web_search` tool.  
+**Resilience:** 429 retry, connectivity guard, keyword-based fallback penalties, offline text fallback.
+
+---
+
+## 9. Home Map Subsystem
+
+```mermaid
+flowchart TB
+    subgraph MapLayers["FlutterMap Layers — bottom to top"]
+        OSM[TileLayer<br/>OpenStreetMap]
+        BOUND[PolygonLayer<br/>BGC boundary]
+        HEAT[CircleLayer<br/>Accessibility OR Safety heatmap]
+        ROUTE[PolylineLayer<br/>3 route lines]
+        MARKERS[MarkerLayer<br/>Reports · pins · origin/dest]
+    end
+
+    subgraph MapControls["Controls"]
+        SEARCH[LocationSearchPanel<br/>20 BGC destinations]
+        TOGGLE[Heatmap Toggle<br/>Accessibility | Safety]
+        REPORT[Report Tap Mode<br/>Red pin → bottom sheet]
+        EMERG[Emergency FAB<br/>911 · BGC hotline · nearest security]
+    end
+
+    SEARCH --> PROV[Riverpod: origin, destination]
+    PROV --> ROUTE
+    TOGGLE --> HEAT
+    REPORT --> MARKERS
+    EMERG --> SEC_NAV[Navigate to nearest security post]
+```
+
+### Static BGC Data (`bgc_accessibility_data.dart`)
+
+| Dataset | Purpose |
+|---------|---------|
+| `accessibilityFeatures` | Ramp, elevator, stairs, construction, tactile markers |
+| `safetyZones` | Green / orange / red safety heatmap circles |
+| `boundaryPolygon` | Map camera constraint |
+| `searchDestinations` | Keyword → coordinate lookup |
+
+---
+
+## 10. Community Reports Flow
+
+```mermaid
+flowchart LR
+    TAP[Map tap mode] --> PIN[Pending pin on map]
+    PIN --> SHEET[ReportLocationSheet]
+    SHEET --> FORM["/report?lat=&lng="]
+    FORM --> HIVE[(Hive reports box)]
+    HIVE --> MAP[Red triangle markers on Home map]
+    MAP --> DETAIL[Tap marker → detail sheet]
+```
+
+Reports are **fully local** (Hive). No server sync in the current POC. Reports appear on the map for all sessions on the same device/browser profile.
+
+---
+
+## 11. State Management (Riverpod)
+
+| Provider | Responsibility |
+|----------|----------------|
+| `currentGpsLocationProvider` | Device coordinates |
+| `selectedOriginProvider` | Route origin (GPS or landmark) |
+| `selectedDestinationProvider` | Route destination |
+| `routePolylinesProvider` | OSRM/ORS polyline sets |
+| `highlightedRouteTypeProvider` | Selected route line emphasis |
+| `heatmapOverlayProvider` | `null` · `accessibility` · `safety` |
+| `routesLoadingProvider` | ORS fetch in progress |
+| `reportTapModeProvider` | Map tap reporting mode |
+| `pendingReportPinProvider` | Unconfirmed report pin |
+| `highlightReportLocationProvider` | Post-submit map focus |
+| `originSearchQueryProvider` / `destinationSearchQueryProvider` | Search autocomplete |
+| `canGetRoutesProvider` | Both endpoints set |
+
+**Mobility profile** and onboarding completion use **SharedPreferences** via `AppConstants` keys (not Riverpod).
+
+---
+
+## 12. Persistence Architecture
+
+```mermaid
+flowchart TB
+    subgraph Hive["Hive (hive_flutter)"]
+        RPT[reports box<br/>ReportModel]
+        RT[saved_routes box<br/>SavedRouteModel]
+        LOC[saved_locations box<br/>SavedLocationModel]
+    end
+
+    subgraph Prefs["SharedPreferences"]
+        PROF[selectedProfileKey]
+        ONBOARD[onboardingCompleteKey]
+        AI[last AI insight + banner dismissed]
+    end
+
+    subgraph Env["Runtime Config"]
+        DOTENV[assets/.env<br/>GEMINI_API_KEY · ORS_API_KEY]
+    end
+
+    ReportScreen --> RPT
+    RouteResults --> RT
+    ProfileScreen --> LOC
+    ProfileSelect --> PROF
+    GeminiService --> DOTENV
+    OrsService --> DOTENV
+```
+
+---
+
+## 13. External Service Integration
+
+| Service | Role | Platform behavior |
+|---------|------|-------------------|
+| **OSRM** | Foot-walking polylines | Primary on **Web** (CORS-friendly) |
+| **OpenRouteService** | Foot-walking polylines | Primary on **mobile**; web via corsproxy fallback |
+| **Gemini 2.0 Flash** | AI insights + web search | All platforms via REST |
+| **OpenStreetMap** | Map tiles | All platforms |
+| **Geolocator** | Current location | Mobile + web (where supported) |
+
+### Environment Variables (`assets/.env`)
+
+```
+GEMINI_API_KEY=...
+ORS_API_KEY=...
+```
+
+Loaded at startup via `flutter_dotenv`. Hot restart required after changes.
+
+---
+
+## 14. Cross-Cutting Concerns
+
+### Theming & Branding
+- Primary color `#FF8A00`, Poppins via Google Fonts
+- Shared `BeeconBrandedAppBar`, logo headers, consistent card/button styling
+
+### Connectivity
+- `HiveService.hasConnectivity()` gates Gemini calls
+- Routing falls back to straight-line polylines if APIs fail
+
+### Security (POC scope)
+- API keys in client-side `.env` (acceptable for hackathon demo; production would use a backend proxy)
+- No user authentication; profile stored locally
+- Emergency sheet exposes GPS coordinates and `tel:` links
+
+### Target Platforms
+- **Web (Chrome)** — primary demo target
+- **Android / iOS** — supported via Flutter; ORS preferred over OSRM on mobile
+
+---
+
+## 15. Technology Stack Summary
+
+| Layer | Technology |
+|-------|------------|
+| Framework | Flutter 3.12+ / Dart |
+| State | flutter_riverpod |
+| Navigation | go_router (ShellRoute) |
+| Maps | flutter_map + latlong2 |
+| Local DB | hive + hive_flutter |
+| Preferences | shared_preferences |
+| HTTP | http |
+| Location | geolocator, permission_handler |
+| AI | Google Gemini API (generativelanguage.googleapis.com) |
+| Routing API | OSRM, OpenRouteService |
+| UI polish | google_fonts, shimmer |
+
+---
+
+## 16. Future Architecture Extensions
+
+These are natural evolution paths beyond the current POC:
+
+```mermaid
+flowchart LR
+    POC[Beecon Client POC] --> API[Beecon Backend API]
+    API --> DB[(Cloud DB<br/>reports · routes · users)]
+    API --> PROXY[API Key Proxy<br/>Gemini · ORS]
+    API --> PUSH[Push notifications<br/>hazard alerts]
+    POC --> REAL[Live accessibility feeds<br/>OpenStreetMap · city data]
+```
+
+| Extension | Benefit |
+|-----------|---------|
+| Backend API | Secure API keys, shared community reports |
+| Real-time hazard sync | Cross-user report visibility |
+| Profile auth | Saved preferences across devices |
+| OSM / city open data | Replace hardcoded BGC features |
+| Push alerts | Safety advisories near user location |
+
+---
+
+## 17. Key Design Decisions
+
+1. **Split routing API from scoring** — OSRM draws paths; local engine produces accessible/safe route cards with rich metadata. Allows demo without perfect ORS accessibility profiles.
+
+2. **Dual score system** — Accessibility (mobility barriers) and Safety (time, crowd, security, AI advisories) are independent models combined into an Overall score.
+
+3. **Offline-first reports** — Community reporting works without backend; critical for hackathon reliability.
+
+4. **Web-first routing** — OSRM avoids ORS CORS/key issues in Chrome demos.
+
+5. **Feature-first folders** — Scales cleanly as auth, routing, and map subsystems grow.
+
+---
+
+*Last updated: reflects Safety Score system, dual heatmap, and Gemini safety web search integration.*

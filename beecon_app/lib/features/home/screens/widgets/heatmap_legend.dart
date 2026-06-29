@@ -1,11 +1,19 @@
+import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class HeatmapLegend extends StatelessWidget {
-  const HeatmapLegend({super.key});
+  const HeatmapLegend({
+    super.key,
+    this.overlay = HeatmapOverlay.accessibility,
+  });
+
+  final HeatmapOverlay overlay;
 
   @override
   Widget build(BuildContext context) {
+    final isSafety = overlay == HeatmapOverlay.safety;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -28,11 +36,22 @@ class HeatmapLegend extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          _LegendRow(color: const Color(0xFF4CAF50), label: 'Accessible'),
-          const SizedBox(height: 4),
-          _LegendRow(color: const Color(0xFFFF8A00), label: 'Moderate'),
-          const SizedBox(height: 4),
-          _LegendRow(color: const Color(0xFFF44336), label: 'Barrier'),
+          if (isSafety) ...[
+            _LegendRow(color: const Color(0xFF4CAF50), label: 'Safe zone'),
+            const SizedBox(height: 4),
+            _LegendRow(
+              color: const Color(0xFFFF8A00),
+              label: 'Exercise caution',
+            ),
+            const SizedBox(height: 4),
+            _LegendRow(color: const Color(0xFFF44336), label: 'Stay alert'),
+          ] else ...[
+            _LegendRow(color: const Color(0xFF4CAF50), label: 'Accessible'),
+            const SizedBox(height: 4),
+            _LegendRow(color: const Color(0xFFFF8A00), label: 'Moderate'),
+            const SizedBox(height: 4),
+            _LegendRow(color: const Color(0xFFF44336), label: 'Barrier'),
+          ],
         ],
       ),
     );

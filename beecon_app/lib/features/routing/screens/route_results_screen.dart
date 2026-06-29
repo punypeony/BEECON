@@ -8,8 +8,10 @@ import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/features/routing/models/context_score_model.dart';
 import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
+import 'package:beecon_app/features/routing/models/safety_score_model.dart';
 import 'package:beecon_app/features/routing/services/accessibility_scorer.dart';
 import 'package:beecon_app/features/routing/services/route_generator.dart';
+import 'package:beecon_app/features/routing/services/safety_scorer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -31,22 +33,36 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
   String? _selectedRouteId;
   bool _insightLoading = false;
   String? _insightText;
+  String? _accessibilityInsight;
+  String? _safetyTip;
   ContextScoreModel? _selectedContextScore;
+  SafetyScoreModel? _selectedSafetyScore;
   bool _eventPenaltyApplied = false;
+  bool _safetyAdvisoryApplied = false;
   bool _webSearchUsed = false;
 
   Color _scoreBadgeColor(int score) {
-    if (score >= 80) return AppColors.primary;
-    if (score >= 50) return Colors.green;
+    if (score >= 80) return Colors.green;
+    if (score >= 50) return Colors.orange;
     return Colors.red;
+  }
+
+  String _scoreEmoji(int score) {
+    if (score >= 80) return '🟢';
+    if (score >= 50) return '🟠';
+    return '🔴';
   }
 
   void _resetRouteSelection() {
     _selectedRouteId = null;
     _insightLoading = false;
     _insightText = null;
+    _accessibilityInsight = null;
+    _safetyTip = null;
     _selectedContextScore = null;
+    _selectedSafetyScore = null;
     _eventPenaltyApplied = false;
+    _safetyAdvisoryApplied = false;
     _webSearchUsed = false;
   }
 
@@ -55,6 +71,13 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
       return _selectedContextScore!;
     }
     return route.contextScore;
+  }
+
+  SafetyScoreModel _displaySafetyFor(RouteModel route) {
+    if (_selectedRouteId == route.id && _selectedSafetyScore != null) {
+      return _selectedSafetyScore!;
+    }
+    return route.safetyScore;
   }
 
   Future<void> _selectRoute(
@@ -66,15 +89,25 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
       _selectedRouteId = route.id;
       _insightLoading = true;
       _insightText = null;
+      _accessibilityInsight = null;
+      _safetyTip = null;
       _selectedContextScore = route.contextScore;
+      _selectedSafetyScore = route.safetyScore;
       _eventPenaltyApplied = false;
+      _safetyAdvisoryApplied = false;
       _webSearchUsed = false;
     });
 
     ref.read(highlightedRouteTypeProvider.notifier).state = route.type;
 
+    final displayContext = _displayContextFor(route);
+    final displaySafety = _displaySafetyFor(route);
+
     await HiveService.saveRoute(
-      route.copyWithContext(_displayContextFor(route)),
+      route.copyWithScores(
+        context: displayContext,
+        safety: displaySafety,
+      ),
       originLabel: origin.label,
       destinationLabel: destination.label,
     );
@@ -95,6 +128,7 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
         prefs.getString(AppConstants.selectedProfileKey) ?? 'General';
 
     final contextScore = route.contextScore;
+    var safetyScore = route.safetyScore;
 
     try {
       final hasConnection = await HiveService.hasConnectivity();
@@ -106,6 +140,7 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
         mobilityProfile: mobilityProfile,
         routeType: route.typeLabel,
         accessibilityScore: contextScore.adjustedScore,
+        safetyScore: safetyScore.finalScore,
         warnings: route.warnings,
         origin: origin.label,
         destination: destination.label,
@@ -113,11 +148,19 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
       );
 
       var updatedContext = contextScore;
+      var updatedSafety = safetyScore;
       var eventApplied = false;
+      var safetyAdvisoryApplied = false;
 
       if (result.eventDetected) {
         updatedContext = contextScore.withEventPenalty();
+        updatedSafety = safetyScore.withEventPenalty();
         eventApplied = true;
+      }
+
+      if (result.safetyAdvisoryDetected) {
+        updatedSafety = updatedSafety.withGeminiAdvisory();
+        safetyAdvisoryApplied = true;
       }
 
       await AiInsightStorage.saveInsight(
@@ -128,9 +171,13 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
       if (!mounted) return;
       setState(() {
         _insightText = result.text;
+        _accessibilityInsight = result.accessibilityInsight;
+        _safetyTip = result.safetyTip;
         _insightLoading = false;
         _selectedContextScore = updatedContext;
+        _selectedSafetyScore = updatedSafety;
         _eventPenaltyApplied = eventApplied;
+        _safetyAdvisoryApplied = safetyAdvisoryApplied;
         _webSearchUsed = result.webSearchUsed;
       });
     } catch (_) {
@@ -139,11 +186,23 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
         _insightText = _geminiService.buildFallbackInsight(
           adjustedScore: contextScore.adjustedScore,
           mobilityProfile: mobilityProfile,
+          safetyScore: safetyScore.finalScore,
           timeAdjustmentReasons: contextScore.reasons,
+        );
+        _accessibilityInsight = _geminiService.buildFallbackAccessibilityInsight(
+          adjustedScore: contextScore.adjustedScore,
+          mobilityProfile: mobilityProfile,
+          timeAdjustmentReasons: contextScore.reasons,
+        );
+        _safetyTip = _geminiService.buildFallbackSafetyTip(
+          safetyScore.finalScore,
+          mobilityProfile,
         );
         _insightLoading = false;
         _selectedContextScore = contextScore;
+        _selectedSafetyScore = safetyScore;
         _eventPenaltyApplied = false;
+        _safetyAdvisoryApplied = false;
         _webSearchUsed = false;
       });
     }
@@ -182,10 +241,15 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
               selectedRouteId: _selectedRouteId,
               insightLoading: _insightLoading,
               insightText: _insightText,
+              accessibilityInsight: _accessibilityInsight,
+              safetyTip: _safetyTip,
               eventPenaltyApplied: _eventPenaltyApplied,
+              safetyAdvisoryApplied: _safetyAdvisoryApplied,
               webSearchUsed: _webSearchUsed,
               displayContextFor: _displayContextFor,
+              displaySafetyFor: _displaySafetyFor,
               scoreBadgeColor: _scoreBadgeColor,
+              scoreEmoji: _scoreEmoji,
               onSelectRoute: (route) => _selectRoute(route, origin, destination),
               onViewOnMap: (route) {
                 ref.read(highlightedRouteTypeProvider.notifier).state =
@@ -198,13 +262,17 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
 }
 
 extension on RouteModel {
-  RouteModel copyWithContext(ContextScoreModel context) {
+  RouteModel copyWithScores({
+    required ContextScoreModel context,
+    required SafetyScoreModel safety,
+  }) {
     return RouteModel(
       id: id,
       type: type,
       segments: segments,
       baseScore: baseScore,
       contextScore: context,
+      safetyScore: safety,
       totalScore: context.adjustedScore,
       distanceM: distanceM,
       durationMin: durationMin,
@@ -262,10 +330,15 @@ class _RouteResultsBody extends StatelessWidget {
     required this.selectedRouteId,
     required this.insightLoading,
     required this.insightText,
+    required this.accessibilityInsight,
+    required this.safetyTip,
     required this.eventPenaltyApplied,
+    required this.safetyAdvisoryApplied,
     required this.webSearchUsed,
     required this.displayContextFor,
+    required this.displaySafetyFor,
     required this.scoreBadgeColor,
+    required this.scoreEmoji,
     required this.onSelectRoute,
     required this.onViewOnMap,
   });
@@ -275,10 +348,15 @@ class _RouteResultsBody extends StatelessWidget {
   final String? selectedRouteId;
   final bool insightLoading;
   final String? insightText;
+  final String? accessibilityInsight;
+  final String? safetyTip;
   final bool eventPenaltyApplied;
+  final bool safetyAdvisoryApplied;
   final bool webSearchUsed;
   final ContextScoreModel Function(RouteModel route) displayContextFor;
+  final SafetyScoreModel Function(RouteModel route) displaySafetyFor;
   final Color Function(int score) scoreBadgeColor;
+  final String Function(int score) scoreEmoji;
   final ValueChanged<RouteModel> onSelectRoute;
   final ValueChanged<RouteModel> onViewOnMap;
 
@@ -301,7 +379,7 @@ class _RouteResultsBody extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Choose a route based on time and accessibility',
+          'Choose a route based on accessibility and safety',
           style: GoogleFonts.poppins(
             fontSize: 16,
             fontWeight: FontWeight.w600,
@@ -319,17 +397,33 @@ class _RouteResultsBody extends StatelessWidget {
         ...routes.map(
           (route) {
             final contextScore = displayContextFor(route);
-            final displayScore = contextScore.adjustedScore;
+            final safetyScore = displaySafetyFor(route);
+            final accessibilityDisplay = contextScore.adjustedScore;
+            final safetyDisplay = safetyScore.finalScore;
+            final overallScore =
+                ((accessibilityDisplay + safetyDisplay) / 2).round();
+
             return _RouteCard(
               route: route,
               contextScore: contextScore,
-              displayScore: displayScore,
+              safetyScore: safetyScore,
+              accessibilityDisplay: accessibilityDisplay,
+              safetyDisplay: safetyDisplay,
+              overallScore: overallScore,
               isSelected: selectedRouteId == route.id,
-              badgeColor: scoreBadgeColor(displayScore),
+              accessibilityBadgeColor: scoreBadgeColor(accessibilityDisplay),
+              safetyBadgeColor: scoreBadgeColor(safetyDisplay),
+              accessibilityEmoji: scoreEmoji(accessibilityDisplay),
+              safetyEmoji: scoreEmoji(safetyDisplay),
               insightLoading: selectedRouteId == route.id && insightLoading,
               insightText: selectedRouteId == route.id ? insightText : null,
+              accessibilityInsight:
+                  selectedRouteId == route.id ? accessibilityInsight : null,
+              safetyTip: selectedRouteId == route.id ? safetyTip : null,
               eventPenaltyApplied:
                   selectedRouteId == route.id && eventPenaltyApplied,
+              safetyAdvisoryApplied:
+                  selectedRouteId == route.id && safetyAdvisoryApplied,
               webSearchUsed: selectedRouteId == route.id && webSearchUsed,
               onSelect: () => onSelectRoute(route),
               onViewOnMap: () => onViewOnMap(route),
@@ -345,27 +439,45 @@ class _RouteCard extends StatelessWidget {
   const _RouteCard({
     required this.route,
     required this.contextScore,
-    required this.displayScore,
+    required this.safetyScore,
+    required this.accessibilityDisplay,
+    required this.safetyDisplay,
+    required this.overallScore,
     required this.isSelected,
-    required this.badgeColor,
+    required this.accessibilityBadgeColor,
+    required this.safetyBadgeColor,
+    required this.accessibilityEmoji,
+    required this.safetyEmoji,
     required this.onSelect,
     required this.onViewOnMap,
     this.insightLoading = false,
     this.insightText,
+    this.accessibilityInsight,
+    this.safetyTip,
     this.eventPenaltyApplied = false,
+    this.safetyAdvisoryApplied = false,
     this.webSearchUsed = false,
   });
 
   final RouteModel route;
   final ContextScoreModel contextScore;
-  final int displayScore;
+  final SafetyScoreModel safetyScore;
+  final int accessibilityDisplay;
+  final int safetyDisplay;
+  final int overallScore;
   final bool isSelected;
-  final Color badgeColor;
+  final Color accessibilityBadgeColor;
+  final Color safetyBadgeColor;
+  final String accessibilityEmoji;
+  final String safetyEmoji;
   final VoidCallback onSelect;
   final VoidCallback onViewOnMap;
   final bool insightLoading;
   final String? insightText;
+  final String? accessibilityInsight;
+  final String? safetyTip;
   final bool eventPenaltyApplied;
+  final bool safetyAdvisoryApplied;
   final bool webSearchUsed;
 
   @override
@@ -385,37 +497,43 @@ class _RouteCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    route.typeLabel,
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+            Text(
+              route.typeLabel,
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: scoreBadgeColor(overallScore).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Overall: $overallScore/100',
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: scoreBadgeColor(overallScore),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$displayScore/100',
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: badgeColor,
-                    ),
-                  ),
-                ),
-              ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            _ScoreRow(
+              emoji: accessibilityEmoji,
+              label: 'Accessibility',
+              score: accessibilityDisplay,
+              color: accessibilityBadgeColor,
+            ),
+            const SizedBox(height: 6),
+            _ScoreRow(
+              emoji: safetyEmoji,
+              label: 'Safety Score',
+              score: safetyDisplay,
+              color: safetyBadgeColor,
             ),
             if (contextScore.reasons.isNotEmpty || eventPenaltyApplied) ...[
               const SizedBox(height: 8),
@@ -432,6 +550,27 @@ class _RouteCard extends StatelessWidget {
                     adjustment: delta,
                   );
                 },
+              ),
+            ],
+            if (safetyScore.reasons.isNotEmpty ||
+                safetyAdvisoryApplied) ...[
+              const SizedBox(height: 4),
+              ...safetyScore.reasons.map(
+                (reason) => _SafetyAdjustmentLine(
+                  reason: reason,
+                  adjustment: SafetyScorer.adjustmentDeltaForReason(reason),
+                ),
+              ),
+            ],
+            if (safetyAdvisoryApplied) ...[
+              const SizedBox(height: 4),
+              Text(
+                '⚠️ Safety advisory found',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: Colors.orange[800],
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
             const SizedBox(height: 12),
@@ -504,8 +643,11 @@ class _RouteCard extends StatelessWidget {
             if (isSelected && insightText != null) ...[
               const SizedBox(height: 16),
               _AiInsightCard(
-                text: insightText!,
+                accessibilityInsight: accessibilityInsight ?? insightText!,
+                safetyTip: safetyTip ?? '',
+                safetyScore: safetyDisplay,
                 eventPenaltyApplied: eventPenaltyApplied,
+                safetyAdvisoryApplied: safetyAdvisoryApplied,
                 webSearchUsed: webSearchUsed,
               ),
             ],
@@ -542,6 +684,104 @@ class _RouteCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+Color scoreBadgeColor(int score) {
+  if (score >= 80) return Colors.green;
+  if (score >= 50) return Colors.orange;
+  return Colors.red;
+}
+
+class _ScoreRow extends StatelessWidget {
+  const _ScoreRow({
+    required this.emoji,
+    required this.label,
+    required this.score,
+    required this.color,
+  });
+
+  final String emoji;
+  final String label;
+  final int score;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 14)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '$score/100',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SafetyAdjustmentLine extends StatelessWidget {
+  const _SafetyAdjustmentLine({
+    required this.reason,
+    required this.adjustment,
+  });
+
+  final String reason;
+  final int adjustment;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNegative = adjustment < 0;
+    final isNeutral = adjustment == 0;
+    final color = isNegative ? Colors.orange[800] : Colors.green[700];
+
+    final label = isNeutral
+        ? reason
+        : isNegative
+            ? '$reason ($adjustment)'
+            : '$reason (+$adjustment)';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(isNegative ? '⚠️' : '✅', style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                color: color,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -644,14 +884,26 @@ class _InsightShimmer extends StatelessWidget {
 
 class _AiInsightCard extends StatelessWidget {
   const _AiInsightCard({
-    required this.text,
+    required this.accessibilityInsight,
+    required this.safetyTip,
+    required this.safetyScore,
     required this.eventPenaltyApplied,
+    required this.safetyAdvisoryApplied,
     required this.webSearchUsed,
   });
 
-  final String text;
+  final String accessibilityInsight;
+  final String safetyTip;
+  final int safetyScore;
   final bool eventPenaltyApplied;
+  final bool safetyAdvisoryApplied;
   final bool webSearchUsed;
+
+  String get _safetyIndicator {
+    if (safetyScore >= 80) return '🟢 Route appears safe';
+    if (safetyScore >= 50) return '🟠 Exercise caution';
+    return '🔴 Stay alert on this route';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -693,7 +945,7 @@ class _AiInsightCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AI Accessibility Insight',
+                            'AI Accessibility & Safety Insight',
                             style: GoogleFonts.poppins(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -708,16 +960,64 @@ class _AiInsightCard extends StatelessWidget {
                               color: Colors.grey[600],
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Text(
-                            text,
+                            'Accessibility',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            accessibilityInsight,
                             style: GoogleFonts.poppins(
                               fontSize: 13,
                               height: 1.5,
                               color: Colors.grey[800],
                             ),
                           ),
-                          if (eventPenaltyApplied) ...[
+                          if (safetyTip.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'Safety',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              safetyTip,
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                height: 1.5,
+                                color: Colors.grey[800],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Text(
+                            _safetyIndicator,
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[800],
+                            ),
+                          ),
+                          if (safetyAdvisoryApplied) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              '⚠️ Safety advisory found',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: Colors.orange[800],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ] else if (eventPenaltyApplied) ...[
                             const SizedBox(height: 8),
                             Text(
                               '🔍 Web search detected nearby activity',

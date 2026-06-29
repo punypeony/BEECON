@@ -319,13 +319,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }).whereType<Polyline>().toList();
   }
 
-  List<CircleMarker> _buildHeatmapCircles() {
+  List<CircleMarker> _buildAccessibilityHeatmapCircles() {
     return BgcMapData.accessibilityFeatures.map((feature) {
       return CircleMarker(
         point: feature.position,
         radius: 80,
         useRadiusInMeter: true,
         color: BgcMapData.heatmapColorForType(feature.type)
+            .withValues(alpha: 0.3),
+        borderColor: Colors.transparent,
+      );
+    }).toList();
+  }
+
+  List<CircleMarker> _buildSafetyHeatmapCircles() {
+    return BgcMapData.safetyZones.map((zone) {
+      return CircleMarker(
+        point: zone.position,
+        radius: zone.radiusM,
+        useRadiusInMeter: true,
+        color: BgcMapData.heatmapColorForSafetyLevel(zone.level)
             .withValues(alpha: 0.3),
         borderColor: Colors.transparent,
       );
@@ -533,7 +546,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final destination = ref.watch(selectedDestinationProvider);
     final polylines = ref.watch(routePolylinesProvider);
     final highlighted = ref.watch(highlightedRouteTypeProvider);
-    final heatmapOn = ref.watch(heatmapEnabledProvider);
+    final heatmapOverlay = ref.watch(heatmapOverlayProvider);
+    final heatmapOn = heatmapOverlay != null;
     final routesLoading = ref.watch(routesLoadingProvider);
     final reportTapMode = ref.watch(reportTapModeProvider);
     final pendingReportPin = ref.watch(pendingReportPinProvider);
@@ -572,7 +586,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             tooltip: 'Heatmap',
             onPressed: () {
-              ref.read(heatmapEnabledProvider.notifier).state = !heatmapOn;
+              if (heatmapOn) {
+                ref.read(heatmapOverlayProvider.notifier).state = null;
+              } else {
+                ref.read(heatmapOverlayProvider.notifier).state =
+                    HeatmapOverlay.accessibility;
+              }
             },
           ),
         ],
@@ -673,7 +692,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   ],
                                 ),
                                 if (heatmapOn)
-                                  CircleLayer(circles: _buildHeatmapCircles()),
+                                  CircleLayer(
+                                    circles: heatmapOverlay ==
+                                            HeatmapOverlay.safety
+                                        ? _buildSafetyHeatmapCircles()
+                                        : _buildAccessibilityHeatmapCircles(),
+                                  ),
                                 if (polylines != null)
                                   PolylineLayer(
                                     polylines: _buildRoutePolylines(
@@ -768,11 +792,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 ),
                               ),
                             if (heatmapOn)
-                              const Positioned(
+                              Positioned(
                                 right: 12,
                                 bottom: 12,
-                                child: HeatmapLegend(),
+                                child: HeatmapLegend(overlay: heatmapOverlay),
                               ),
+                            Positioned(
+                              left: 12,
+                              bottom: heatmapOn ? 72 : 12,
+                              child: _HeatmapModeToggle(
+                                activeOverlay: heatmapOverlay,
+                                onSelect: (overlay) {
+                                  ref
+                                      .read(heatmapOverlayProvider.notifier)
+                                      .state = overlay;
+                                },
+                              ),
+                            ),
                             if (_locationLoading)
                               Positioned(
                                 top: 12,
@@ -813,6 +849,79 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeatmapModeToggle extends StatelessWidget {
+  const _HeatmapModeToggle({
+    required this.activeOverlay,
+    required this.onSelect,
+  });
+
+  final HeatmapOverlay? activeOverlay;
+  final ValueChanged<HeatmapOverlay> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _HeatmapChip(
+            label: 'Accessibility',
+            selected: activeOverlay == HeatmapOverlay.accessibility,
+            onTap: () => onSelect(HeatmapOverlay.accessibility),
+          ),
+          _HeatmapChip(
+            label: 'Safety',
+            selected: activeOverlay == HeatmapOverlay.safety,
+            onTap: () => onSelect(HeatmapOverlay.safety),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeatmapChip extends StatelessWidget {
+  const _HeatmapChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.primary : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: selected ? Colors.white : Colors.grey[700],
+            ),
           ),
         ),
       ),
