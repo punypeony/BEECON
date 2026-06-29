@@ -51,6 +51,4 @@ Hot **restart** after changing `.env`.
 
 On Flutter Web, **OSRM** provides routing without a key. ORS is used on mobile when configured.
 
-## License
 
-Private / academic project — update as needed.
