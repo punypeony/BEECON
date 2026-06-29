@@ -5,8 +5,10 @@ import 'package:beecon_app/core/services/gemini_service.dart';
 import 'package:beecon_app/core/storage/ai_insight_storage.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/features/routing/models/context_score_model.dart';
 import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
+import 'package:beecon_app/features/routing/services/accessibility_scorer.dart';
 import 'package:beecon_app/features/routing/services/route_generator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +31,9 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
   String? _selectedRouteId;
   bool _insightLoading = false;
   String? _insightText;
+  ContextScoreModel? _selectedContextScore;
+  bool _eventPenaltyApplied = false;
+  bool _webSearchUsed = false;
 
   Color _scoreBadgeColor(int score) {
     if (score >= 80) return AppColors.primary;
@@ -40,6 +45,16 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
     _selectedRouteId = null;
     _insightLoading = false;
     _insightText = null;
+    _selectedContextScore = null;
+    _eventPenaltyApplied = false;
+    _webSearchUsed = false;
+  }
+
+  ContextScoreModel _displayContextFor(RouteModel route) {
+    if (_selectedRouteId == route.id && _selectedContextScore != null) {
+      return _selectedContextScore!;
+    }
+    return route.contextScore;
   }
 
   Future<void> _selectRoute(
@@ -51,12 +66,15 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
       _selectedRouteId = route.id;
       _insightLoading = true;
       _insightText = null;
+      _selectedContextScore = route.contextScore;
+      _eventPenaltyApplied = false;
+      _webSearchUsed = false;
     });
 
     ref.read(highlightedRouteTypeProvider.notifier).state = route.type;
 
     await HiveService.saveRoute(
-      route,
+      route.copyWithContext(_displayContextFor(route)),
       originLabel: origin.label,
       destinationLabel: destination.label,
     );
@@ -76,37 +94,57 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
     final mobilityProfile =
         prefs.getString(AppConstants.selectedProfileKey) ?? 'General';
 
+    final contextScore = route.contextScore;
+
     try {
       final hasConnection = await HiveService.hasConnectivity();
       if (!hasConnection) {
         throw Exception('No internet connection');
       }
 
-      final insight = await _geminiService.getAccessibilityInsight(
+      final result = await _geminiService.getAccessibilityInsight(
         mobilityProfile: mobilityProfile,
         routeType: route.typeLabel,
-        accessibilityScore: route.totalScore,
+        accessibilityScore: contextScore.adjustedScore,
         warnings: route.warnings,
         origin: origin.label,
         destination: destination.label,
+        timeAdjustmentReasons: contextScore.reasons,
       );
+
+      var updatedContext = contextScore;
+      var eventApplied = false;
+
+      if (result.eventDetected) {
+        updatedContext = contextScore.withEventPenalty();
+        eventApplied = true;
+      }
 
       await AiInsightStorage.saveInsight(
         routeId: route.id,
-        insight: insight,
+        insight: result.text,
       );
 
       if (!mounted) return;
       setState(() {
-        _insightText = insight;
+        _insightText = result.text;
         _insightLoading = false;
+        _selectedContextScore = updatedContext;
+        _eventPenaltyApplied = eventApplied;
+        _webSearchUsed = result.webSearchUsed;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _insightText =
-            'Unable to load AI insight. Score: ${route.totalScore}/100';
+        _insightText = _geminiService.buildFallbackInsight(
+          adjustedScore: contextScore.adjustedScore,
+          mobilityProfile: mobilityProfile,
+          timeAdjustmentReasons: contextScore.reasons,
+        );
         _insightLoading = false;
+        _selectedContextScore = contextScore;
+        _eventPenaltyApplied = false;
+        _webSearchUsed = false;
       });
     }
   }
@@ -144,6 +182,9 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
               selectedRouteId: _selectedRouteId,
               insightLoading: _insightLoading,
               insightText: _insightText,
+              eventPenaltyApplied: _eventPenaltyApplied,
+              webSearchUsed: _webSearchUsed,
+              displayContextFor: _displayContextFor,
               scoreBadgeColor: _scoreBadgeColor,
               onSelectRoute: (route) => _selectRoute(route, origin, destination),
               onViewOnMap: (route) {
@@ -152,6 +193,22 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
                 context.go(AppConstants.home);
               },
             ),
+    );
+  }
+}
+
+extension on RouteModel {
+  RouteModel copyWithContext(ContextScoreModel context) {
+    return RouteModel(
+      id: id,
+      type: type,
+      segments: segments,
+      baseScore: baseScore,
+      contextScore: context,
+      totalScore: context.adjustedScore,
+      distanceM: distanceM,
+      durationMin: durationMin,
+      warnings: warnings,
     );
   }
 }
@@ -205,6 +262,9 @@ class _RouteResultsBody extends StatelessWidget {
     required this.selectedRouteId,
     required this.insightLoading,
     required this.insightText,
+    required this.eventPenaltyApplied,
+    required this.webSearchUsed,
+    required this.displayContextFor,
     required this.scoreBadgeColor,
     required this.onSelectRoute,
     required this.onViewOnMap,
@@ -215,6 +275,9 @@ class _RouteResultsBody extends StatelessWidget {
   final String? selectedRouteId;
   final bool insightLoading;
   final String? insightText;
+  final bool eventPenaltyApplied;
+  final bool webSearchUsed;
+  final ContextScoreModel Function(RouteModel route) displayContextFor;
   final Color Function(int score) scoreBadgeColor;
   final ValueChanged<RouteModel> onSelectRoute;
   final ValueChanged<RouteModel> onViewOnMap;
@@ -244,17 +307,34 @@ class _RouteResultsBody extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
+        const SizedBox(height: 6),
+        Text(
+          AccessibilityScorer.formatTimeContextLabel(),
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            color: Colors.grey[500],
+          ),
+        ),
         const SizedBox(height: 20),
         ...routes.map(
-          (route) => _RouteCard(
-            route: route,
-            isSelected: selectedRouteId == route.id,
-            badgeColor: scoreBadgeColor(route.totalScore),
-            insightLoading: selectedRouteId == route.id && insightLoading,
-            insightText: selectedRouteId == route.id ? insightText : null,
-            onSelect: () => onSelectRoute(route),
-            onViewOnMap: () => onViewOnMap(route),
-          ),
+          (route) {
+            final contextScore = displayContextFor(route);
+            final displayScore = contextScore.adjustedScore;
+            return _RouteCard(
+              route: route,
+              contextScore: contextScore,
+              displayScore: displayScore,
+              isSelected: selectedRouteId == route.id,
+              badgeColor: scoreBadgeColor(displayScore),
+              insightLoading: selectedRouteId == route.id && insightLoading,
+              insightText: selectedRouteId == route.id ? insightText : null,
+              eventPenaltyApplied:
+                  selectedRouteId == route.id && eventPenaltyApplied,
+              webSearchUsed: selectedRouteId == route.id && webSearchUsed,
+              onSelect: () => onSelectRoute(route),
+              onViewOnMap: () => onViewOnMap(route),
+            );
+          },
         ),
       ],
     );
@@ -264,21 +344,29 @@ class _RouteResultsBody extends StatelessWidget {
 class _RouteCard extends StatelessWidget {
   const _RouteCard({
     required this.route,
+    required this.contextScore,
+    required this.displayScore,
     required this.isSelected,
     required this.badgeColor,
     required this.onSelect,
     required this.onViewOnMap,
     this.insightLoading = false,
     this.insightText,
+    this.eventPenaltyApplied = false,
+    this.webSearchUsed = false,
   });
 
   final RouteModel route;
+  final ContextScoreModel contextScore;
+  final int displayScore;
   final bool isSelected;
   final Color badgeColor;
   final VoidCallback onSelect;
   final VoidCallback onViewOnMap;
   final bool insightLoading;
   final String? insightText;
+  final bool eventPenaltyApplied;
+  final bool webSearchUsed;
 
   @override
   Widget build(BuildContext context) {
@@ -319,7 +407,7 @@ class _RouteCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    '${route.totalScore}/100',
+                    '$displayScore/100',
                     style: GoogleFonts.poppins(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -329,6 +417,23 @@ class _RouteCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (contextScore.reasons.isNotEmpty || eventPenaltyApplied) ...[
+              const SizedBox(height: 8),
+              ...contextScore.reasons.map(
+                (reason) {
+                  final timeAdj = AccessibilityScorer.getContextualScoreAdjustment(
+                    contextScore.timestamp,
+                  ).adjustment;
+                  final delta = reason == 'Event/festival detected nearby'
+                      ? -10
+                      : timeAdj;
+                  return _ContextAdjustmentLine(
+                    reason: reason,
+                    adjustment: delta,
+                  );
+                },
+              ),
+            ],
             const SizedBox(height: 12),
             Row(
               children: [
@@ -398,7 +503,11 @@ class _RouteCard extends StatelessWidget {
             ],
             if (isSelected && insightText != null) ...[
               const SizedBox(height: 16),
-              _AiInsightCard(text: insightText!),
+              _AiInsightCard(
+                text: insightText!,
+                eventPenaltyApplied: eventPenaltyApplied,
+                webSearchUsed: webSearchUsed,
+              ),
             ],
             const SizedBox(height: 12),
             SizedBox(
@@ -433,6 +542,50 @@ class _RouteCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ContextAdjustmentLine extends StatelessWidget {
+  const _ContextAdjustmentLine({
+    required this.reason,
+    required this.adjustment,
+  });
+
+  final String reason;
+  final int adjustment;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEvent = reason == 'Event/festival detected nearby';
+    final isNegative = adjustment < 0;
+    final color = isNegative ? Colors.orange[800] : Colors.green[700];
+
+    final label = isEvent
+        ? 'Event detected nearby ($adjustment)'
+        : isNegative
+            ? 'Score reduced: $reason ($adjustment)'
+            : '$reason (+$adjustment)';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(isNegative ? '⚠️' : '✅', style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                color: color,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -490,9 +643,15 @@ class _InsightShimmer extends StatelessWidget {
 }
 
 class _AiInsightCard extends StatelessWidget {
-  const _AiInsightCard({required this.text});
+  const _AiInsightCard({
+    required this.text,
+    required this.eventPenaltyApplied,
+    required this.webSearchUsed,
+  });
 
   final String text;
+  final bool eventPenaltyApplied;
+  final bool webSearchUsed;
 
   @override
   Widget build(BuildContext context) {
@@ -534,14 +693,22 @@ class _AiInsightCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '🐝 AI Accessibility Insight',
+                            'AI Accessibility Insight',
                             style: GoogleFonts.poppins(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                               color: AppColors.primary,
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 4),
+                          Text(
+                            AccessibilityScorer.formatLiveContextLabel(),
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           Text(
                             text,
                             style: GoogleFonts.poppins(
@@ -550,6 +717,26 @@ class _AiInsightCard extends StatelessWidget {
                               color: Colors.grey[800],
                             ),
                           ),
+                          if (eventPenaltyApplied) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              '🔍 Web search detected nearby activity',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ] else if (webSearchUsed) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              '🔍 Live web context included',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

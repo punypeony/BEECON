@@ -74,12 +74,16 @@ class RouteGenerator {
 
     final distanceM = (baseDistanceM * 0.85).round();
     final durationMin = (distanceM / 75).ceil().clamp(5, 45);
+    final baseScore = AccessibilityScorer.averageSegmentScore(segments);
+    final contextScore = AccessibilityScorer.buildContextScore(baseScore);
 
     return RouteModel(
       id: 'route-fastest-${origin.label.hashCode}-${destination.label.hashCode}',
       type: RouteType.fastest,
       segments: segments,
-      totalScore: AccessibilityScorer.averageSegmentScore(segments),
+      baseScore: baseScore,
+      contextScore: contextScore,
+      totalScore: contextScore.adjustedScore,
       distanceM: distanceM,
       durationMin: durationMin,
       warnings: [
@@ -138,12 +142,16 @@ class RouteGenerator {
 
     final distanceM = (baseDistanceM * 1.25).round();
     final durationMin = (distanceM / 65).ceil().clamp(8, 50);
+    final baseScore = AccessibilityScorer.averageSegmentScore(segments);
+    final contextScore = AccessibilityScorer.buildContextScore(baseScore);
 
     return RouteModel(
       id: 'route-accessible-${origin.label.hashCode}-${destination.label.hashCode}',
       type: RouteType.accessible,
       segments: segments,
-      totalScore: AccessibilityScorer.averageSegmentScore(segments),
+      baseScore: baseScore,
+      contextScore: contextScore,
+      totalScore: contextScore.adjustedScore,
       distanceM: distanceM,
       durationMin: durationMin,
       warnings: [
@@ -188,12 +196,16 @@ class RouteGenerator {
 
     final distanceM = baseDistanceM;
     final durationMin = (distanceM / 70).ceil().clamp(6, 45);
+    final baseScore = AccessibilityScorer.averageSegmentScore(segments);
+    final contextScore = AccessibilityScorer.buildContextScore(baseScore);
 
     return RouteModel(
       id: 'route-balanced-${origin.label.hashCode}-${destination.label.hashCode}',
       type: RouteType.balanced,
       segments: segments,
-      totalScore: AccessibilityScorer.averageSegmentScore(segments),
+      baseScore: baseScore,
+      contextScore: contextScore,
+      totalScore: contextScore.adjustedScore,
       distanceM: distanceM,
       durationMin: durationMin,
       warnings: [

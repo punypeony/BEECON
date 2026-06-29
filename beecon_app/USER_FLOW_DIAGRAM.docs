@@ -1,0 +1,166 @@
+# Beecon — User Flow Diagram
+
+**Proof-of-concept demo · Bonifacio Global City accessibility navigation**
+
+Use this file for hackathon submission (Elimination Round — Proof of Concept).  
+Render in GitHub, [Mermaid Live Editor](https://mermaid.live), or VS Code Mermaid preview, then export as PNG/PDF for your presentation.
+
+---
+
+## Master User Flow
+
+Complete journey from first launch through AI-assisted routing and community reporting.
+
+```mermaid
+flowchart TD
+    START([User opens Beecon]) --> SPLASH[Splash Screen<br/>Logo · tagline · loading]
+
+    SPLASH --> ONBOARD[Onboarding<br/>3 slides · Skip / Next]
+    ONBOARD --> PROFILE[Profile Selection<br/>Wheelchair · Senior · Stroller<br/>Luggage · Injury · General]
+    PROFILE -->|Continue| HOME
+
+    subgraph MAIN["Main App — Bottom Navigation"]
+        HOME[Home Screen<br/>BGC map · search · heatmap]
+        ROUTES[Routes Screen<br/>3 scored route options]
+        REPORT[Report Screen<br/>Obstacle form]
+        USERPROFILE[Profile Screen<br/>Mobility profile · saved places]
+    end
+
+    HOME <-->|Routes tab| ROUTES
+    HOME <-->|Report tab| HOME
+    HOME <-->|Profile tab| USERPROFILE
+    HOME <-->|Home tab| HOME
+
+    subgraph ROUTE_FLOW["Flow A — Context-aware routing"]
+        HOME --> SEARCH[Set origin & destination<br/>20 BGC landmarks]
+        SEARCH --> GETROUTES[Tap Get Routes]
+        GETROUTES --> POLYLINES[Map draws 3 walking paths<br/>Fastest · Accessible · Balanced]
+        POLYLINES --> ROUTES
+        ROUTES --> COMPARE[Compare scores & warnings]
+        COMPARE --> SELECT[Select a route]
+        SELECT --> AI{Internet<br/>available?}
+        AI -->|Yes| GEMINI[Gemini AI insight<br/>Profile + route context]
+        AI -->|No| FALLBACK[Score + offline message]
+        GEMINI --> READ[User reads personalized tip]
+        FALLBACK --> READ
+        READ --> VIEWMAP[View on Map]
+        VIEWMAP --> HOME
+    end
+
+    subgraph REPORT_FLOW["Flow B — Community hazard report"]
+        HOME --> BTNREPORT[Tap Report an issue]
+        BTNREPORT --> TAPMODE[Map tap mode enabled<br/>Tap to place pin]
+        TAPMODE --> TAPMAP[User taps location on map]
+        TAPMAP --> SHEET[Bottom sheet<br/>Report issue here?]
+        SHEET -->|Cancel| HOME
+        SHEET -->|Continue| REPORT
+        REPORT --> FORM[Type · description · photo]
+        FORM --> SUBMIT[Submit report]
+        SUBMIT --> SUCCESS[Success dialog<br/>View on Map]
+        SUCCESS --> HOME
+        HOME --> MARKER[Red triangle on map]
+        MARKER --> DETAIL[Tap marker · read details]
+    end
+
+    subgraph SUPPORT["Supporting actions"]
+        HOME --> HEAT[Toggle accessibility heatmap]
+        HOME --> HELP[How it works sheet]
+        HOME --> EMERG[Emergency FAB<br/>GPS · call · copy coords]
+        USERPROFILE --> CHANGE[Change profile]
+        CHANGE --> PROFILE
+        USERPROFILE --> SAVED[Saved Locations]
+    end
+
+    style START fill:#FFF3E0,stroke:#FF8A00
+    style GEMINI fill:#FFF3E0,stroke:#FF8A00,stroke-width:2px
+    style MARKER fill:#FFEBEE,stroke:#D32F2F
+    style MAIN fill:#FAFAFA,stroke:#E0E0E0
+    style ROUTE_FLOW fill:#F5F5F5,stroke:#FF8A00
+    style REPORT_FLOW fill:#F5F5F5,stroke:#D32F2F
+```
+
+---
+
+## Flow A — Routing & AI Insight (Demo Path)
+
+Primary 1–3 minute demo flow for judges.
+
+```mermaid
+flowchart LR
+    A1[Select mobility profile] --> A2[Search origin & destination]
+    A2 --> A3[Get Routes]
+    A3 --> A4[Compare 3 routes on map & list]
+    A4 --> A5[Select Most Accessible]
+    A5 --> A6[Gemini generates insight<br/>using profile + warnings + score]
+    A6 --> A7[View highlighted route on map]
+
+    style A6 fill:#FFF3E0,stroke:#FF8A00,stroke-width:2px
+```
+
+**Context sent to AI:** mobility profile · route type · accessibility score · warnings · origin & destination labels · BGC-focused prompt.
+
+---
+
+## Flow B — Map-tap Community Report
+
+```mermaid
+flowchart LR
+    B1[Tap Report an issue] --> B2[Tap map to pin location]
+    B2 --> B3[Confirm in bottom sheet]
+    B3 --> B4[Fill report form]
+    B4 --> B5[Submit]
+    B5 --> B6[Marker appears on map]
+    B6 --> B7[Others tap marker for details]
+
+    style B2 fill:#FFEBEE,stroke:#D32F2F
+    style B6 fill:#FFEBEE,stroke:#D32F2F
+```
+
+---
+
+## Context-Aware AI Loop (Hackathon Theme)
+
+How identified social need becomes personalized, actionable guidance.
+
+```mermaid
+flowchart TD
+    NEED([Social need<br/>Safe paths for diverse mobility]) --> PROFILE[User selects mobility profile]
+    PROFILE --> DATA[App computes route scores & warnings]
+    DATA --> COMMUNITY[Community reports on map]
+    COMMUNITY --> CONTEXT[Structured context assembled]
+    CONTEXT --> GEMINI[Gemini 2.0 Flash]
+    GEMINI --> INSIGHT[Personalized accessibility insight]
+    INSIGHT --> DECIDE[User chooses route]
+    DECIDE --> ACTION[Travel or report new hazard]
+    ACTION --> COMMUNITY
+
+    style NEED fill:#E3F2FD,stroke:#1976D2
+    style GEMINI fill:#FFF3E0,stroke:#FF8A00,stroke-width:2px
+    style INSIGHT fill:#E8F5E9,stroke:#388E3C
+```
+
+---
+
+## Screen Map
+
+| Screen | User enters from | Primary actions |
+|--------|------------------|-----------------|
+| Splash | App launch | Auto-continue |
+| Onboarding | Splash | Skip / Get Started |
+| Profile Select | Onboarding | Pick profile → Home |
+| Home | Profile / bottom nav | Search, Get Routes, Report, map |
+| Routes | Get Routes / bottom nav | Compare routes, select, AI insight |
+| Report | Map pin Continue / bottom nav | Submit obstacle |
+| Profile | Bottom nav | Change profile, saved locations |
+
+---
+
+## How to Export for Submission
+
+1. Open [mermaid.live](https://mermaid.live) and paste any diagram block above.  
+2. Click **Export → PNG** or **SVG**.  
+3. Attach the image to your Proof of Concept submission alongside `PROJECT_BRIEF.docs`.
+
+---
+
+*Beecon · Hackathon proof of concept · BGC, Philippines*
