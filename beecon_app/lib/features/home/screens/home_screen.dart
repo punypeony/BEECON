@@ -369,7 +369,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return BgcMapData.accessibilityFeatures.map((feature) {
       return CircleMarker(
         point: feature.position,
-        radius: 80,
+        radius: 32,
         useRadiusInMeter: true,
         color: BgcMapData.heatmapColorForType(feature.type)
             .withValues(alpha: 0.3),

@@ -4,6 +4,7 @@ import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/models/route_segment_model.dart';
 import 'package:beecon_app/features/routing/models/safety_score_model.dart';
 import 'package:beecon_app/features/routing/services/accessibility_scorer.dart';
+import 'package:beecon_app/features/routing/services/polyline_route_builder.dart';
 import 'package:beecon_app/features/routing/services/safety_scorer.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -15,6 +16,19 @@ class RouteGenerator {
     required RouteLocation destination,
     OrsRouteBundle? orsBundle,
   }) {
+    if (orsBundle != null && _hasUsablePolylines(orsBundle)) {
+      return [
+        _fromPolyline(RouteType.fastest, origin, destination, orsBundle.fastest),
+        _fromPolyline(
+          RouteType.accessible,
+          origin,
+          destination,
+          orsBundle.accessible,
+        ),
+        _fromPolyline(RouteType.balanced, origin, destination, orsBundle.balanced),
+      ];
+    }
+
     final baseDistanceM = _estimateDistanceM(
       origin.lat,
       origin.lng,
@@ -42,6 +56,27 @@ class RouteGenerator {
         _durationMin(orsBundle?.balanced, baseDistanceM, factor: 1.0, speed: 70),
       ),
     ];
+  }
+
+  static bool _hasUsablePolylines(OrsRouteBundle bundle) {
+    bool ok(OrsRouteResult r) => r.polylinePoints.length >= 2;
+    return ok(bundle.fastest) && ok(bundle.accessible) && ok(bundle.balanced);
+  }
+
+  static RouteModel _fromPolyline(
+    RouteType type,
+    RouteLocation origin,
+    RouteLocation destination,
+    OrsRouteResult result,
+  ) {
+    return PolylineRouteBuilder.build(
+      type: type,
+      origin: origin,
+      destination: destination,
+      polylinePoints: result.polylinePoints,
+      distanceM: result.distanceM.round().clamp(200, 8000),
+      durationMin: result.durationMin.round().clamp(5, 90),
+    );
   }
 
   static int _distanceM(

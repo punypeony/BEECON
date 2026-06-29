@@ -31,29 +31,6 @@ class OrsService {
     double destLat,
     double destLng,
   ) async {
-    if (kIsWeb) {
-      final osrm = await _fetchOsrmBundle(
-        originLat,
-        originLng,
-        destLat,
-        destLng,
-      );
-      if (osrm != null) return osrm;
-      return _fallbackBundle(originLat, originLng, destLat, destLng);
-    }
-
-    final apiKey = _readApiKey();
-    if (apiKey != null) {
-      final ors = await _fetchOrsBundle(
-        apiKey: apiKey,
-        originLat: originLat,
-        originLng: originLng,
-        destLat: destLat,
-        destLng: destLng,
-      );
-      if (ors != null && !ors.anyFallback) return ors;
-    }
-
     final osrm = await _fetchOsrmBundle(
       originLat,
       originLng,
@@ -61,6 +38,20 @@ class OrsService {
       destLng,
     );
     if (osrm != null) return osrm;
+
+    if (!kIsWeb) {
+      final apiKey = _readApiKey();
+      if (apiKey != null) {
+        final ors = await _fetchOrsBundle(
+          apiKey: apiKey,
+          originLat: originLat,
+          originLng: originLng,
+          destLat: destLat,
+          destLng: destLng,
+        );
+        if (ors != null && !ors.anyFallback) return ors;
+      }
+    }
 
     return _fallbackBundle(originLat, originLng, destLat, destLng);
   }
@@ -148,31 +139,10 @@ class OrsService {
     );
     if (fastest == null) return null;
 
-    final midLat = (originLat + destLat) / 2;
-    final midLng = (originLng + destLng) / 2;
-
-    final accessible = await _fetchOsrmRoute(
-          originLat,
-          originLng,
-          destLat,
-          destLng,
-          waypoints: [LatLng(midLat + 0.0018, midLng + 0.0012)],
-        ) ??
-        _offsetPolylineResult(fastest, 0.0008, 'Most Accessible');
-
-    final balanced = await _fetchOsrmRoute(
-          originLat,
-          originLng,
-          destLat,
-          destLng,
-          waypoints: [LatLng(midLat - 0.0012, midLng - 0.0008)],
-        ) ??
-        _offsetPolylineResult(fastest, -0.0008, 'Balanced');
-
     return OrsRouteBundle(
-      fastest: fastest,
-      accessible: accessible,
-      balanced: balanced,
+      fastest: fastest.copyWith(routeType: 'Fastest'),
+      accessible: fastest.copyWith(routeType: 'Most Accessible'),
+      balanced: fastest.copyWith(routeType: 'Balanced'),
     );
   }
 
@@ -185,7 +155,7 @@ class OrsService {
     try {
       final coords = '$originLng,$originLat;$destLng,$destLat';
       final url =
-          '$_osrmBase/$coords?overview=full&geometries=geojson&alternatives=2';
+          '$_osrmBase/$coords?overview=full&geometries=geojson&alternatives=3';
 
       final response = await http.get(Uri.parse(url));
       if (response.statusCode != 200) {
@@ -213,14 +183,14 @@ class OrsService {
   }
 
   OrsRouteBundle _bundleFromOsrmRoutes(List<OrsRouteResult> routes) {
-    final byDuration = [...routes]
-      ..sort((a, b) => a.durationMin.compareTo(b.durationMin));
+    final byDistance = [...routes]
+      ..sort((a, b) => a.distanceM.compareTo(b.distanceM));
 
-    final fastest = byDuration.first.copyWith(routeType: 'Fastest');
-    final balanced = byDuration.length > 2
-        ? byDuration[1].copyWith(routeType: 'Balanced')
-        : byDuration.last.copyWith(routeType: 'Balanced');
-    final accessible = byDuration.last.copyWith(routeType: 'Most Accessible');
+    final fastest = byDistance.first.copyWith(routeType: 'Fastest');
+    final accessible = byDistance.last.copyWith(routeType: 'Most Accessible');
+    final balanced = byDistance.length > 2
+        ? byDistance[byDistance.length ~/ 2].copyWith(routeType: 'Balanced')
+        : byDistance.last.copyWith(routeType: 'Balanced');
 
     return OrsRouteBundle(
       fastest: fastest,
@@ -279,24 +249,6 @@ class OrsService {
       polylinePoints: points,
       distanceM: (route['distance'] as num?)?.toDouble() ?? 0,
       durationMin: ((route['duration'] as num?)?.toDouble() ?? 0) / 60,
-      isFallback: false,
-    );
-  }
-
-  OrsRouteResult _offsetPolylineResult(
-    OrsRouteResult base,
-    double latOffset,
-    String routeType,
-  ) {
-    final points = base.polylinePoints
-        .map((p) => LatLng(p.latitude + latOffset, p.longitude))
-        .toList();
-
-    return OrsRouteResult(
-      routeType: routeType,
-      polylinePoints: points,
-      distanceM: base.distanceM * 1.08,
-      durationMin: base.durationMin * 1.08,
       isFallback: false,
     );
   }

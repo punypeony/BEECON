@@ -88,106 +88,304 @@ class BgcMapData {
   ];
 
   static const List<AccessibilityFeature> accessibilityFeatures = [
+    // Coordinates snapped to OSRM foot-walk network (sidewalks / streets).
     AccessibilityFeature(
       id: 'high-street-ramp',
       name: 'High Street Ramp',
-      lat: 14.5512,
-      lng: 121.0489,
+      lat: 14.550832,
+      lng: 121.048409,
       type: AccessibilityFeatureType.ramp,
       accessibilityTip:
-          'Wheelchair-accessible ramp at the main High Street crossing. '
-          'Use the north-side curb cut near the pedestrian lane.',
+          'Curb-cut ramp on 26th Street sidewalk at the 7th Avenue crossing.',
     ),
     AccessibilityFeature(
       id: 'high-street-elevator',
       name: 'High Street Elevator',
-      lat: 14.5505,
-      lng: 121.0495,
+      lat: 14.551137,
+      lng: 121.049592,
       type: AccessibilityFeatureType.elevator,
       accessibilityTip:
-          'Elevator access between street level and the retail podium. '
-          'Look for the lift lobby beside the central escalators.',
+          'Street-level lift on 7th Avenue sidewalk along 26th Street.',
     ),
     AccessibilityFeature(
       id: 'sm-aura-elevator',
       name: 'SM Aura Elevator',
-      lat: 14.5467,
-      lng: 121.0534,
+      lat: 14.546872,
+      lng: 121.052094,
       type: AccessibilityFeatureType.elevator,
       accessibilityTip:
-          'Accessible elevators are available at the main mall entrance '
-          'and parking deck connections.',
+          'Step-free entrance on 11th Avenue sidewalk near McKinley Parkway.',
     ),
     AccessibilityFeature(
       id: 'uptown-bgc-stairs',
       name: 'Uptown BGC Stairs',
-      lat: 14.5568,
-      lng: 121.0544,
+      lat: 14.557332,
+      lng: 121.053445,
       type: AccessibilityFeatureType.stairs,
       accessibilityTip:
-          'This plaza connection uses stairs only. Wheelchair users should '
-          'route via the nearby ramp on 9th Avenue.',
+          'Stair-only link on 36th Street sidewalk — use 9th Avenue parade ramp.',
     ),
     AccessibilityFeature(
       id: 'market-market-construction',
       name: 'Market! Market! Construction',
-      lat: 14.5494,
-      lng: 121.0555,
+      lat: 14.549403,
+      lng: 121.055313,
       type: AccessibilityFeatureType.construction,
       accessibilityTip:
-          'Temporary construction zone near the carpark entrance. Expect '
-          'narrow paths and possible detours.',
+          'Sidewalk narrowing on McKinley Parkway near Market carpark.',
     ),
     AccessibilityFeature(
       id: 'burgos-circle-tactile',
       name: 'Burgos Circle Tactile Paving',
-      lat: 14.5517,
-      lng: 121.0446,
+      lat: 14.551514,
+      lng: 121.045172,
       type: AccessibilityFeatureType.tactile,
       accessibilityTip:
-          'Tactile paving marks safe crossing points around Burgos Circle. '
-          'Follow the raised strips toward pedestrian crossings.',
+          'Tactile crossing on 28th Street at the Forbes Town loop.',
     ),
     AccessibilityFeature(
       id: 'bonifacio-stopover-ramp',
       name: 'Bonifacio Stopover Ramp',
-      lat: 14.5586,
-      lng: 121.0478,
+      lat: 14.558351,
+      lng: 121.048257,
       type: AccessibilityFeatureType.ramp,
       accessibilityTip:
-          'Ramp access from the bus stop area to the sidewalk along 32nd Street.',
+          'Bus-stop ramp on General Gregorio del Pilar Street sidewalk.',
     ),
     AccessibilityFeature(
       id: 'uptown-parade-ramp',
       name: 'Uptown Parade Ramp',
-      lat: 14.5575,
-      lng: 121.0530,
+      lat: 14.557448,
+      lng: 121.053085,
       type: AccessibilityFeatureType.ramp,
       accessibilityTip:
-          'Gentle slope ramp at the parade ground entrance suitable for '
-          'wheelchairs and strollers.',
+          'Parade ground ramp on 36th Street at 9th Avenue.',
     ),
     AccessibilityFeature(
       id: 'sm-aura-stairs',
       name: 'SM Aura Sky Garden Stairs',
-      lat: 14.5475,
-      lng: 121.0528,
+      lat: 14.547256,
+      lng: 121.052619,
       type: AccessibilityFeatureType.stairs,
       accessibilityTip:
-          'Sky Garden access requires stairs. Use the ground-floor elevator '
-          'bank for step-free mall navigation instead.',
+          'Stairs on 26th Street sidewalk — use 11th Avenue mall entrance.',
     ),
     AccessibilityFeature(
       id: 'market-market-elevator',
-      name: 'Market! Market! Elevator',
-      lat: 14.5488,
-      lng: 121.0548,
+      name: 'Market! Market! Entrance',
+      lat: 14.549612,
+      lng: 121.055218,
       type: AccessibilityFeatureType.elevator,
       accessibilityTip:
-          'Elevator available near the food hall entrance connecting '
-          'parking levels to the main market floor.',
+          'Street elevator lobby on McKinley Parkway sidewalk at mall entrance.',
+    ),
+    AccessibilityFeature(
+      id: '5th-ave-ramp',
+      name: '5th Avenue Ramp',
+      lat: 14.552934,
+      lng: 121.049591,
+      type: AccessibilityFeatureType.ramp,
+      accessibilityTip:
+          'Step-free ramp on 5th Avenue sidewalk at 28th Street.',
+    ),
+    AccessibilityFeature(
+      id: 'mckinley-walkway-ramp',
+      name: 'McKinley Parkway Walkway Ramp',
+      lat: 14.550188,
+      lng: 121.055137,
+      type: AccessibilityFeatureType.ramp,
+      accessibilityTip:
+          'Walkway ramp on McKinley Parkway at the 26th Street corner.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-green-8th-high',
+      name: '8th Ave / Bonifacio High Street',
+      lat: 14.551106,
+      lng: 121.049581,
+      type: AccessibilityFeatureType.ramp,
+      accessibilityTip:
+          'Curb-cut ramp on 8th Avenue sidewalk at Bonifacio High Street.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-green-8th-30th',
+      name: '8th Ave / 30th Street',
+      lat: 14.551924,
+      lng: 121.050576,
+      type: AccessibilityFeatureType.tactile,
+      accessibilityTip:
+          'Tactile crossing on 8th Avenue at the 30th Street intersection.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-green-9th-ave',
+      name: '9th Avenue',
+      lat: 14.550536,
+      lng: 121.051347,
+      type: AccessibilityFeatureType.ramp,
+      accessibilityTip:
+          'Step-free ramp on 9th Avenue sidewalk — balanced-route clip point.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-green-bonifacio-south',
+      name: 'Bonifacio South Street',
+      lat: 14.549693,
+      lng: 121.052444,
+      type: AccessibilityFeatureType.ramp,
+      accessibilityTip:
+          'Level sidewalk ramp on Bonifacio South Street eastbound.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-green-11th-ave',
+      name: '11th Avenue',
+      lat: 14.549614,
+      lng: 121.052956,
+      type: AccessibilityFeatureType.elevator,
+      accessibilityTip:
+          'Street elevator on 11th Avenue sidewalk near McKinley Parkway.',
+    ),
+    AccessibilityFeature(
+      id: 'serendra-accessible-entrance',
+      name: 'Serendra Accessible Entrance',
+      lat: 14.552159,
+      lng: 121.047928,
+      type: AccessibilityFeatureType.ramp,
+      accessibilityTip:
+          'Level entrance on 5th Avenue sidewalk at Serendra frontage.',
+    ),
+    AccessibilityFeature(
+      id: 'track-30th-tactile',
+      name: 'Track 30th Tactile Crossing',
+      lat: 14.553578,
+      lng: 121.050792,
+      type: AccessibilityFeatureType.tactile,
+      accessibilityTip:
+          'Tactile paving on 32nd Street at the Track 30th crossing.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-red-9th-high',
+      name: '9th Ave / Bonifacio High Street',
+      lat: 14.551032,
+      lng: 121.05144,
+      type: AccessibilityFeatureType.stairs,
+      accessibilityTip:
+          'Stair-only link at 9th Ave / Bonifacio High Street — use 8th Avenue instead.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-red-9th-30th',
+      name: '9th Ave / 30th Street',
+      lat: 14.551645,
+      lng: 121.05145,
+      type: AccessibilityFeatureType.stairs,
+      accessibilityTip:
+          'Steep stairs on 9th Avenue at 30th Street — avoid for wheelchairs.',
+    ),
+    AccessibilityFeature(
+      id: 'corridor-red-30th-st',
+      name: '30th Street',
+      lat: 14.551674,
+      lng: 121.05136,
+      type: AccessibilityFeatureType.stairs,
+      accessibilityTip:
+          'Stair-only segment on 30th Street sidewalk — highest-risk obstacle.',
+    ),
+    AccessibilityFeature(
+      id: 'sm-aura-parking-stairs',
+      name: 'SM Aura Parking Stairs',
+      lat: 14.547267,
+      lng: 121.052434,
+      type: AccessibilityFeatureType.stairs,
+      accessibilityTip:
+          'Parking stairs on 26th Street sidewalk near McKinley Parkway.',
+    ),
+    AccessibilityFeature(
+      id: 'mckinley-construction',
+      name: 'McKinley Parkway Construction',
+      lat: 14.549645,
+      lng: 121.054655,
+      type: AccessibilityFeatureType.construction,
+      accessibilityTip:
+          'Road works narrowing the McKinley Parkway sidewalk.',
     ),
   ];
+
+  /// Green circles — ramps, elevators, tactile paving (route toward these).
+  static List<AccessibilityFeature> get greenFeatures => accessibilityFeatures
+      .where((f) => isGreenFeature(f.type))
+      .toList(growable: false);
+
+  /// Red circles — stairs and construction (route away from these).
+  static List<AccessibilityFeature> get redFeatures => accessibilityFeatures
+      .where((f) => isRedFeature(f.type))
+      .toList(growable: false);
+
+  static bool isGreenFeature(AccessibilityFeatureType type) {
+    switch (type) {
+      case AccessibilityFeatureType.ramp:
+      case AccessibilityFeatureType.elevator:
+      case AccessibilityFeatureType.tactile:
+        return true;
+      case AccessibilityFeatureType.stairs:
+      case AccessibilityFeatureType.construction:
+        return false;
+    }
+  }
+
+  static bool isRedFeature(AccessibilityFeatureType type) {
+    switch (type) {
+      case AccessibilityFeatureType.stairs:
+      case AccessibilityFeatureType.construction:
+        return true;
+      case AccessibilityFeatureType.ramp:
+      case AccessibilityFeatureType.elevator:
+      case AccessibilityFeatureType.tactile:
+        return false;
+    }
+  }
+
+  /// Features within [corridorM] of the straight line between [origin] and [destination].
+  static List<AccessibilityFeature> featuresAlongCorridor(
+    LatLng origin,
+    LatLng destination, {
+    bool greenOnly = false,
+    bool redOnly = false,
+    double corridorM = 480,
+  }) {
+    const distance = Distance();
+    final list = greenOnly
+        ? greenFeatures
+        : redOnly
+            ? redFeatures
+            : accessibilityFeatures;
+
+    return list.where((feature) {
+      final d = _pointToSegmentDistanceM(
+        distance,
+        origin,
+        destination,
+        feature.position,
+      );
+      return d <= corridorM;
+    }).toList(growable: false);
+  }
+
+  static double _pointToSegmentDistanceM(
+    Distance distance,
+    LatLng a,
+    LatLng b,
+    LatLng p,
+  ) {
+    final ax = b.longitude - a.longitude;
+    final ay = b.latitude - a.latitude;
+    final bx = p.longitude - a.longitude;
+    final by = p.latitude - a.latitude;
+    final lenSq = ax * ax + ay * ay;
+    var t = lenSq == 0 ? 0.0 : (bx * ax + by * ay) / lenSq;
+    t = t.clamp(0.0, 1.0);
+    final proj = LatLng(
+      a.latitude + t * ay,
+      a.longitude + t * ax,
+    );
+    return distance.as(LengthUnit.Meter, proj, p);
+  }
 
   /// Search keyword → pin coordinates (shared with routing destinations).
   static Map<String, LatLng> get searchDestinations =>
