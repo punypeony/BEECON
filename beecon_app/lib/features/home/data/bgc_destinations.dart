@@ -1,3 +1,4 @@
+import 'package:beecon_app/features/home/data/bgc_landmarks.dart';
 import 'package:latlong2/latlong.dart';
 
 class BgcDestination {
@@ -14,131 +15,124 @@ class BgcDestination {
   final double lng;
 
   LatLng get position => LatLng(lat, lng);
+
+  factory BgcDestination.fromLandmark({
+    required String name,
+    required String address,
+    required LatLng landmark,
+  }) {
+    return BgcDestination(
+      name: name,
+      address: address,
+      lat: landmark.latitude,
+      lng: landmark.longitude,
+    );
+  }
 }
 
 class BgcDestinations {
   BgcDestinations._();
 
-  static const List<BgcDestination> all = [
-    BgcDestination(
+  static final List<BgcDestination> all = [
+    BgcDestination.fromLandmark(
       name: 'SM Aura Premier',
       address: '26th St cor McKinley Parkway, Taguig',
-      lat: 14.5465,
-      lng: 121.0530,
+      landmark: BgcLandmarks.smAura,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'High Street BGC',
       address: '7th Ave cor 26th St, Bonifacio Global City',
-      lat: 14.5547,
-      lng: 121.0507,
+      landmark: BgcLandmarks.highStreet,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Uptown Mall BGC',
       address: '9th Ave cor 36th St, Taguig',
-      lat: 14.5600,
-      lng: 121.0514,
+      landmark: BgcLandmarks.uptownMall,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Market! Market!',
       address: 'McKinley Pkwy, Fort Bonifacio, Taguig',
-      lat: 14.5514,
-      lng: 121.0500,
+      landmark: BgcLandmarks.marketMarket,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Burgos Circle',
       address: 'Forbes Town Center, Burgos Circle, Taguig',
-      lat: 14.5525,
-      lng: 121.0468,
+      landmark: BgcLandmarks.burgosCircle,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Bonifacio Stopover',
       address: '31st St cor 3rd Ave, Bonifacio Global City',
-      lat: 14.5489,
-      lng: 121.0476,
+      landmark: BgcLandmarks.bonifacioStopover,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'The Fort Strip',
       address: '28th St cor 7th Ave, Bonifacio Global City',
-      lat: 14.5518,
-      lng: 121.0455,
+      landmark: BgcLandmarks.theFortStrip,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Venice Grand Canal Mall',
       address: 'Upper McKinley Rd, McKinley Hill, Taguig',
-      lat: 14.5073,
-      lng: 121.0420,
+      landmark: BgcLandmarks.veniceGrandCanal,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Mind Museum BGC',
       address: '3rd Ave, Bonifacio Global City, Taguig',
-      lat: 14.5534,
-      lng: 121.0448,
+      landmark: BgcLandmarks.mindMuseum,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: "St. Luke's Medical Center BGC",
       address: '32nd St cor 5th Ave, Bonifacio Global City',
-      lat: 14.5536,
-      lng: 121.0584,
+      landmark: BgcLandmarks.stLukes,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Serendra BGC',
       address: '11th Ave, Bonifacio Global City, Taguig',
-      lat: 14.5573,
-      lng: 121.0472,
+      landmark: BgcLandmarks.serendra,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'One Bonifacio High Street',
       address: '5th Ave cor 28th St, Bonifacio Global City',
-      lat: 14.5560,
-      lng: 121.0510,
+      landmark: BgcLandmarks.oneBonifacioHighStreet,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Mckinley Hill',
       address: 'Upper McKinley Rd, Fort Bonifacio, Taguig',
-      lat: 14.5352,
-      lng: 121.0488,
+      landmark: BgcLandmarks.mckinleyHill,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Rizal Park BGC',
       address: 'Rizal Dr, Bonifacio Global City, Taguig',
-      lat: 14.5489,
-      lng: 121.0510,
+      landmark: BgcLandmarks.rizalPark,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'BGC Bus Stop',
       address: '26th St, Bonifacio Global City, Taguig',
-      lat: 14.5547,
-      lng: 121.0480,
+      landmark: BgcLandmarks.bgcBusStop,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Crossroads BGC',
       address: '32nd St cor 8th Ave, Bonifacio Global City',
-      lat: 14.5510,
-      lng: 121.0497,
+      landmark: BgcLandmarks.crossroads,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Track 30th BGC',
       address: '30th St cor 3rd Ave, Bonifacio Global City',
-      lat: 14.5555,
-      lng: 121.0463,
+      landmark: BgcLandmarks.track30th,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Century City Mall',
       address: 'Kalayaan Ave, Makati',
-      lat: 14.5530,
-      lng: 121.0134,
+      landmark: BgcLandmarks.centuryCity,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'Picadilly Star BGC',
       address: '5th Ave, Bonifacio Global City, Taguig',
-      lat: 14.5578,
-      lng: 121.0501,
+      landmark: BgcLandmarks.picadillyStar,
     ),
-    BgcDestination(
+    BgcDestination.fromLandmark(
       name: 'National University BGC',
       address: 'Finance Dr, Bonifacio Global City, Taguig',
-      lat: 14.5994,
-      lng: 121.0154,
+      landmark: BgcLandmarks.nationalUniversity,
     ),
   ];
 
@@ -163,6 +157,27 @@ class BgcDestinations {
     for (final destination in all) {
       if (destination.name.toLowerCase() == normalized) {
         return destination;
+      }
+    }
+
+    final alias = BgcLandmarks.searchAliases[normalized];
+    if (alias != null) {
+      for (final destination in all) {
+        if ((destination.lat - alias.latitude).abs() < 0.0002 &&
+            (destination.lng - alias.longitude).abs() < 0.0002) {
+          return destination;
+        }
+      }
+    }
+
+    for (final entry in BgcLandmarks.searchAliases.entries) {
+      if (normalized.contains(entry.key)) {
+        for (final destination in all) {
+          if ((destination.lat - entry.value.latitude).abs() < 0.0002 &&
+              (destination.lng - entry.value.longitude).abs() < 0.0002) {
+            return destination;
+          }
+        }
       }
     }
 

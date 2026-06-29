@@ -1,3 +1,4 @@
+import 'package:beecon_app/core/services/ors_route_result.dart';
 import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:beecon_app/features/routing/models/route_model.dart';
 import 'package:beecon_app/features/routing/models/route_segment_model.dart';
@@ -12,6 +13,7 @@ class RouteGenerator {
   static List<RouteModel> generateBgcRoutes({
     required RouteLocation origin,
     required RouteLocation destination,
+    OrsRouteBundle? orsBundle,
   }) {
     final baseDistanceM = _estimateDistanceM(
       origin.lat,
@@ -21,10 +23,48 @@ class RouteGenerator {
     );
 
     return [
-      _buildFastestRoute(origin, destination, baseDistanceM),
-      _buildAccessibleRoute(origin, destination, baseDistanceM),
-      _buildBalancedRoute(origin, destination, baseDistanceM),
+      _buildFastestRoute(
+        origin,
+        destination,
+        _distanceM(orsBundle?.fastest, baseDistanceM, factor: 0.85),
+        _durationMin(orsBundle?.fastest, baseDistanceM, factor: 0.85, speed: 75),
+      ),
+      _buildAccessibleRoute(
+        origin,
+        destination,
+        _distanceM(orsBundle?.accessible, baseDistanceM, factor: 1.25),
+        _durationMin(orsBundle?.accessible, baseDistanceM, factor: 1.25, speed: 65),
+      ),
+      _buildBalancedRoute(
+        origin,
+        destination,
+        _distanceM(orsBundle?.balanced, baseDistanceM, factor: 1.0),
+        _durationMin(orsBundle?.balanced, baseDistanceM, factor: 1.0, speed: 70),
+      ),
     ];
+  }
+
+  static int _distanceM(
+    OrsRouteResult? ors,
+    int baseDistanceM, {
+    required double factor,
+  }) {
+    if (ors != null && ors.distanceM > 0) {
+      return ors.distanceM.round().clamp(200, 8000);
+    }
+    return (baseDistanceM * factor).round();
+  }
+
+  static int _durationMin(
+    OrsRouteResult? ors,
+    int baseDistanceM, {
+    required double factor,
+    required int speed,
+  }) {
+    if (ors != null && ors.durationMin > 0) {
+      return ors.durationMin.round().clamp(5, 90);
+    }
+    return ((baseDistanceM * factor) / speed).ceil().clamp(5, 90);
   }
 
   static int _estimateDistanceM(
@@ -47,7 +87,8 @@ class RouteGenerator {
   static RouteModel _buildFastestRoute(
     RouteLocation origin,
     RouteLocation destination,
-    int baseDistanceM,
+    int distanceM,
+    int durationMin,
   ) {
     final segments = [
       _segment(
@@ -74,8 +115,6 @@ class RouteGenerator {
       ),
     ];
 
-    final distanceM = (baseDistanceM * 0.85).round();
-    final durationMin = (distanceM / 75).ceil().clamp(5, 45);
     final baseScore = AccessibilityScorer.averageSegmentScore(segments);
     final contextScore = AccessibilityScorer.buildContextScore(baseScore);
     final safetyScore = _buildSafetyScore(origin, destination);
@@ -103,7 +142,8 @@ class RouteGenerator {
   static RouteModel _buildAccessibleRoute(
     RouteLocation origin,
     RouteLocation destination,
-    int baseDistanceM,
+    int distanceM,
+    int durationMin,
   ) {
     final segments = [
       _segment(
@@ -144,8 +184,6 @@ class RouteGenerator {
       ),
     ];
 
-    final distanceM = (baseDistanceM * 1.25).round();
-    final durationMin = (distanceM / 65).ceil().clamp(8, 50);
     final baseScore = AccessibilityScorer.averageSegmentScore(segments);
     final contextScore = AccessibilityScorer.buildContextScore(baseScore);
     final safetyScore = _buildSafetyScore(origin, destination);
@@ -171,7 +209,8 @@ class RouteGenerator {
   static RouteModel _buildBalancedRoute(
     RouteLocation origin,
     RouteLocation destination,
-    int baseDistanceM,
+    int distanceM,
+    int durationMin,
   ) {
     final segments = [
       _segment(
@@ -200,8 +239,6 @@ class RouteGenerator {
       ),
     ];
 
-    final distanceM = baseDistanceM;
-    final durationMin = (distanceM / 70).ceil().clamp(6, 45);
     final baseScore = AccessibilityScorer.averageSegmentScore(segments);
     final contextScore = AccessibilityScorer.buildContextScore(baseScore);
     final safetyScore = _buildSafetyScore(origin, destination);

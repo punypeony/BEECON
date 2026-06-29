@@ -1,3 +1,4 @@
+import 'package:beecon_app/features/home/data/bgc_landmarks.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -188,18 +189,9 @@ class BgcMapData {
     ),
   ];
 
-  /// Hardcoded BGC destinations matched by search keywords.
-  static const Map<String, LatLng> searchDestinations = {
-    'high street': LatLng(14.5512, 121.0489),
-    'sm aura': LatLng(14.5467, 121.0534),
-    'uptown bgc': LatLng(14.5568, 121.0544),
-    'uptown': LatLng(14.5568, 121.0544),
-    'market market': LatLng(14.5494, 121.0555),
-    'market! market!': LatLng(14.5494, 121.0555),
-    'burgos circle': LatLng(14.5517, 121.0446),
-    'bonifacio stopover': LatLng(14.5586, 121.0478),
-    'stopover': LatLng(14.5586, 121.0478),
-  };
+  /// Search keyword → pin coordinates (shared with routing destinations).
+  static Map<String, LatLng> get searchDestinations =>
+      BgcLandmarks.searchAliases;
 
   static Color heatmapColorForType(AccessibilityFeatureType type) {
     switch (type) {

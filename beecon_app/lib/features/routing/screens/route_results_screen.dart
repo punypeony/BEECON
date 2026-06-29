@@ -1,9 +1,10 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/core/widgets/responsive_layout.dart';
+import 'package:beecon_app/core/data/bgc_context_data.dart';
 import 'package:beecon_app/core/providers/destination_provider.dart';
-import 'package:beecon_app/core/services/gemini_service.dart';
-import 'package:beecon_app/core/storage/ai_insight_storage.dart';
+import 'package:beecon_app/core/services/ors_service.dart';
+import 'package:beecon_app/core/services/route_ai_models.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/features/routing/models/context_score_model.dart';
@@ -29,46 +30,130 @@ class RouteResultsScreen extends ConsumerStatefulWidget {
 }
 
 class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
-  final GeminiService _geminiService = GeminiService();
+  final OrsService _orsService = OrsService();
 
+  List<RouteModel>? _routes;
+  RouteType? _recommendedType;
+  RouteAiLoadingPhase _phase = RouteAiLoadingPhase.idle;
   String? _selectedRouteId;
-  bool _insightLoading = false;
-  String? _insightText;
-  String? _accessibilityInsight;
-  String? _safetyTip;
-  ContextScoreModel? _selectedContextScore;
-  SafetyScoreModel? _selectedSafetyScore;
-  bool _eventPenaltyApplied = false;
-  bool _safetyAdvisoryApplied = false;
-  bool _webSearchUsed = false;
+  String? _loadedKey;
+  int _loadGeneration = 0;
+  int _insightGeneration = 0;
+  String _mobilityProfile = 'General';
+  String? _loadingInsightRouteId;
+  final Map<String, Agent2Result> _insightsByRouteId = {};
+  final Map<RouteType, ({ContextScoreModel context, SafetyScoreModel safety})>
+      _eventAdjustedScores = {};
 
   Color _scoreBadgeColor(int score) => scoreBadgeColor(score);
 
-  void _resetRouteSelection() {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadRoutes();
+    });
+  }
+
+  void _resetPipeline() {
+    _routes = null;
+    _recommendedType = null;
     _selectedRouteId = null;
-    _insightLoading = false;
-    _insightText = null;
-    _accessibilityInsight = null;
-    _safetyTip = null;
-    _selectedContextScore = null;
-    _selectedSafetyScore = null;
-    _eventPenaltyApplied = false;
-    _safetyAdvisoryApplied = false;
-    _webSearchUsed = false;
+    _loadedKey = null;
+    _loadingInsightRouteId = null;
+    _insightsByRouteId.clear();
+    _eventAdjustedScores.clear();
+    _phase = RouteAiLoadingPhase.idle;
+    _loadGeneration++;
+    _insightGeneration++;
   }
 
   ContextScoreModel _displayContextFor(RouteModel route) {
-    if (_selectedRouteId == route.id && _selectedContextScore != null) {
-      return _selectedContextScore!;
-    }
+    final adjusted = _eventAdjustedScores[route.type];
+    if (adjusted != null) return adjusted.context;
     return route.contextScore;
   }
 
   SafetyScoreModel _displaySafetyFor(RouteModel route) {
-    if (_selectedRouteId == route.id && _selectedSafetyScore != null) {
-      return _selectedSafetyScore!;
-    }
+    final adjusted = _eventAdjustedScores[route.type];
+    if (adjusted != null) return adjusted.safety;
     return route.safetyScore;
+  }
+
+  Future<void> _loadRoutes() async {
+    final origin = ref.read(selectedOriginProvider);
+    final destination = ref.read(selectedDestinationProvider);
+    if (origin == null || destination == null) return;
+
+    final key = '${origin.label}::${destination.label}';
+    if (_loadedKey == key && _routes != null) return;
+
+    final generation = ++_loadGeneration;
+
+    setState(() {
+      _loadedKey = key;
+      _routes = null;
+      _recommendedType = null;
+      _selectedRouteId = null;
+      _loadingInsightRouteId = null;
+      _insightsByRouteId.clear();
+      _eventAdjustedScores.clear();
+      _phase = RouteAiLoadingPhase.calculatingRoutes;
+    });
+
+    var bundle = ref.read(orsRouteBundleProvider);
+    if (bundle == null) {
+      final raw = await _orsService.getAllRoutes(
+        origin.lat,
+        origin.lng,
+        destination.lat,
+        destination.lng,
+      );
+      if (!mounted || generation != _loadGeneration) return;
+      bundle = _orsService.snapBundleToPins(
+        raw,
+        originLat: origin.lat,
+        originLng: origin.lng,
+        destLat: destination.lat,
+        destLng: destination.lng,
+      );
+      ref.read(orsRouteBundleProvider.notifier).state = bundle;
+      ref.read(routePolylinesProvider.notifier).state =
+          _orsService.polylinesFromBundle(
+        bundle,
+        originLat: origin.lat,
+        originLng: origin.lng,
+        destLat: destination.lat,
+        destLng: destination.lng,
+      );
+    }
+
+    if (!mounted || generation != _loadGeneration) return;
+
+    final routes = RouteGenerator.generateBgcRoutes(
+      origin: origin,
+      destination: destination,
+      orsBundle: bundle,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    final mobilityProfile =
+        prefs.getString(AppConstants.selectedProfileKey) ?? 'General';
+
+    if (!mounted || generation != _loadGeneration) return;
+
+    final recommended = heuristicRecommendedRoute(routes, mobilityProfile);
+
+    ref.read(recommendedRouteTypeProvider.notifier).state = recommended;
+    ref.read(highlightedRouteTypeProvider.notifier).state = recommended;
+    ref.read(routeAgentPipelineProvider.notifier).state = null;
+
+    setState(() {
+      _routes = routes;
+      _recommendedType = recommended;
+      _mobilityProfile = mobilityProfile;
+      _phase = RouteAiLoadingPhase.complete;
+    });
   }
 
   Future<void> _selectRoute(
@@ -76,19 +161,12 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
     RouteLocation origin,
     RouteLocation destination,
   ) async {
+    final generation = ++_insightGeneration;
+
     setState(() {
       _selectedRouteId = route.id;
-      _insightLoading = true;
-      _insightText = null;
-      _accessibilityInsight = null;
-      _safetyTip = null;
-      _selectedContextScore = route.contextScore;
-      _selectedSafetyScore = route.safetyScore;
-      _eventPenaltyApplied = false;
-      _safetyAdvisoryApplied = false;
-      _webSearchUsed = false;
+      _loadingInsightRouteId = route.id;
     });
-
     ref.read(highlightedRouteTypeProvider.notifier).state = route.type;
 
     final displayContext = _displayContextFor(route);
@@ -105,6 +183,73 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
 
     if (!mounted) return;
 
+    if (_insightsByRouteId.containsKey(route.id)) {
+      setState(() => _loadingInsightRouteId = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${route.typeLabel} selected',
+            style: GoogleFonts.poppins(),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final mobilityProfile =
+        prefs.getString(AppConstants.selectedProfileKey) ?? 'General';
+    final gemini = ref.read(geminiServiceProvider);
+
+    Agent2Result insight;
+    try {
+      insight = await gemini.validateSelectedRoute(
+        mobilityProfile: mobilityProfile,
+        origin: origin.label,
+        destination: destination.label,
+        route: route,
+      );
+    } catch (_) {
+      insight = Agent2Result(
+        finalRoute: agentRouteLabelForType(route.type),
+        overridden: false,
+        overrideReason: null,
+        userInsight: gemini.buildAgent2FallbackInsightPublic(
+          accessibilityScore: route.contextScore.adjustedScore,
+          safetyScore: route.safetyScore.finalScore,
+          localContext: BgcContextMatcher.match(
+            now: DateTime.now(),
+            destinationLabel: destination.label,
+          ),
+        ),
+        safetyIndicator: 'Route appears safe',
+        eventDetected: false,
+        eventPenalty: 0,
+        failed: true,
+        usedLocalFallback: true,
+      );
+    }
+
+    if (!mounted || generation != _insightGeneration) return;
+
+    if (insight.eventDetected && insight.eventPenalty > 0) {
+      _eventAdjustedScores[route.type] = (
+        context: route.contextScore.withEventPenalty(
+          penalty: -insight.eventPenalty,
+        ),
+        safety: route.safetyScore.withEventPenalty(
+          penalty: -insight.eventPenalty,
+        ),
+      );
+    }
+
+    setState(() {
+      _insightsByRouteId[route.id] = insight;
+      _loadingInsightRouteId = null;
+    });
+
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -113,90 +258,6 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
         ),
       ),
     );
-
-    final prefs = await SharedPreferences.getInstance();
-    final mobilityProfile =
-        prefs.getString(AppConstants.selectedProfileKey) ?? 'General';
-
-    final contextScore = route.contextScore;
-    var safetyScore = route.safetyScore;
-
-    try {
-      final hasConnection = await HiveService.hasConnectivity();
-      if (!hasConnection) {
-        throw Exception('No internet connection');
-      }
-
-      final result = await _geminiService.getAccessibilityInsight(
-        mobilityProfile: mobilityProfile,
-        routeType: route.typeLabel,
-        accessibilityScore: contextScore.adjustedScore,
-        safetyScore: safetyScore.finalScore,
-        warnings: route.warnings,
-        origin: origin.label,
-        destination: destination.label,
-        timeAdjustmentReasons: contextScore.reasons,
-      );
-
-      var updatedContext = contextScore;
-      var updatedSafety = safetyScore;
-      var eventApplied = false;
-      var safetyAdvisoryApplied = false;
-
-      if (result.eventDetected) {
-        updatedContext = contextScore.withEventPenalty();
-        updatedSafety = safetyScore.withEventPenalty();
-        eventApplied = true;
-      }
-
-      if (result.safetyAdvisoryDetected) {
-        updatedSafety = updatedSafety.withGeminiAdvisory();
-        safetyAdvisoryApplied = true;
-      }
-
-      await AiInsightStorage.saveInsight(
-        routeId: route.id,
-        insight: result.text,
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _insightText = result.text;
-        _accessibilityInsight = result.accessibilityInsight;
-        _safetyTip = result.safetyTip;
-        _insightLoading = false;
-        _selectedContextScore = updatedContext;
-        _selectedSafetyScore = updatedSafety;
-        _eventPenaltyApplied = eventApplied;
-        _safetyAdvisoryApplied = safetyAdvisoryApplied;
-        _webSearchUsed = result.webSearchUsed;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _insightText = _geminiService.buildFallbackInsight(
-          adjustedScore: contextScore.adjustedScore,
-          mobilityProfile: mobilityProfile,
-          safetyScore: safetyScore.finalScore,
-          timeAdjustmentReasons: contextScore.reasons,
-        );
-        _accessibilityInsight = _geminiService.buildFallbackAccessibilityInsight(
-          adjustedScore: contextScore.adjustedScore,
-          mobilityProfile: mobilityProfile,
-          timeAdjustmentReasons: contextScore.reasons,
-        );
-        _safetyTip = _geminiService.buildFallbackSafetyTip(
-          safetyScore.finalScore,
-          mobilityProfile,
-        );
-        _insightLoading = false;
-        _selectedContextScore = contextScore;
-        _selectedSafetyScore = safetyScore;
-        _eventPenaltyApplied = false;
-        _safetyAdvisoryApplied = false;
-        _webSearchUsed = false;
-      });
-    }
   }
 
   @override
@@ -206,15 +267,19 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
 
     ref.listen<RouteLocation?>(selectedDestinationProvider, (previous, next) {
       if (previous != next) {
-        setState(_resetRouteSelection);
+        setState(_resetPipeline);
+        _loadRoutes();
       }
     });
 
     ref.listen<RouteLocation?>(selectedOriginProvider, (previous, next) {
       if (previous != next) {
-        setState(_resetRouteSelection);
+        setState(_resetPipeline);
+        _loadRoutes();
       }
     });
+
+    final prefsProfile = _mobilityProfile;
 
     return Scaffold(
       appBar: BeeconBrandedAppBar(
@@ -229,14 +294,13 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
           : _RouteResultsBody(
               origin: origin,
               destination: destination,
+              routes: _routes,
+              loadingPhase: _phase,
               selectedRouteId: _selectedRouteId,
-              insightLoading: _insightLoading,
-              insightText: _insightText,
-              accessibilityInsight: _accessibilityInsight,
-              safetyTip: _safetyTip,
-              eventPenaltyApplied: _eventPenaltyApplied,
-              safetyAdvisoryApplied: _safetyAdvisoryApplied,
-              webSearchUsed: _webSearchUsed,
+              loadingInsightRouteId: _loadingInsightRouteId,
+              insightsByRouteId: _insightsByRouteId,
+              recommendedType: _recommendedType,
+              mobilityProfile: prefsProfile,
               displayContextFor: _displayContextFor,
               displaySafetyFor: _displaySafetyFor,
               scoreBadgeColor: _scoreBadgeColor,
@@ -317,14 +381,13 @@ class _RouteResultsBody extends StatelessWidget {
   const _RouteResultsBody({
     required this.origin,
     required this.destination,
+    required this.routes,
+    required this.loadingPhase,
     required this.selectedRouteId,
-    required this.insightLoading,
-    required this.insightText,
-    required this.accessibilityInsight,
-    required this.safetyTip,
-    required this.eventPenaltyApplied,
-    required this.safetyAdvisoryApplied,
-    required this.webSearchUsed,
+    required this.loadingInsightRouteId,
+    required this.insightsByRouteId,
+    required this.recommendedType,
+    required this.mobilityProfile,
     required this.displayContextFor,
     required this.displaySafetyFor,
     required this.scoreBadgeColor,
@@ -334,34 +397,65 @@ class _RouteResultsBody extends StatelessWidget {
 
   final RouteLocation origin;
   final RouteLocation destination;
+  final List<RouteModel>? routes;
+  final RouteAiLoadingPhase loadingPhase;
   final String? selectedRouteId;
-  final bool insightLoading;
-  final String? insightText;
-  final String? accessibilityInsight;
-  final String? safetyTip;
-  final bool eventPenaltyApplied;
-  final bool safetyAdvisoryApplied;
-  final bool webSearchUsed;
+  final String? loadingInsightRouteId;
+  final Map<String, Agent2Result> insightsByRouteId;
+  final RouteType? recommendedType;
+  final String mobilityProfile;
   final ContextScoreModel Function(RouteModel route) displayContextFor;
   final SafetyScoreModel Function(RouteModel route) displaySafetyFor;
   final Color Function(int score) scoreBadgeColor;
   final ValueChanged<RouteModel> onSelectRoute;
   final ValueChanged<RouteModel> onViewOnMap;
 
+  String get _loadingLabel {
+    switch (loadingPhase) {
+      case RouteAiLoadingPhase.calculatingRoutes:
+        return 'Calculating 3 routes...';
+      default:
+        return 'Loading routes...';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final routes = RouteGenerator.generateBgcRoutes(
-      origin: origin,
-      destination: destination,
-    );
+    if (routes == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const _PhaseShimmer(),
+              const SizedBox(height: 20),
+              Text(
+                _loadingLabel,
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
-    final routeCards = routes.map((route) {
+    final routeCards = routes!.map((route) {
       final contextScore = displayContextFor(route);
       final safetyScore = displaySafetyFor(route);
       final accessibilityDisplay = contextScore.adjustedScore;
       final safetyDisplay = safetyScore.finalScore;
       final overallScore =
           ((accessibilityDisplay + safetyDisplay) / 2).round();
+      final isRecommended = recommendedType == route.type;
+      final isSelected = selectedRouteId == route.id;
+      final insight = insightsByRouteId[route.id];
+      final insightLoading =
+          isSelected && loadingInsightRouteId == route.id;
 
       return _RouteCard(
         route: route,
@@ -370,21 +464,22 @@ class _RouteResultsBody extends StatelessWidget {
         accessibilityDisplay: accessibilityDisplay,
         safetyDisplay: safetyDisplay,
         overallScore: overallScore,
-        isSelected: selectedRouteId == route.id,
+        isSelected: isSelected,
+        isRecommended: isRecommended,
         accessibilityBadgeColor: scoreBadgeColor(accessibilityDisplay),
         safetyBadgeColor: scoreBadgeColor(safetyDisplay),
-        insightLoading: selectedRouteId == route.id && insightLoading,
-        insightText: selectedRouteId == route.id ? insightText : null,
-        accessibilityInsight:
-            selectedRouteId == route.id ? accessibilityInsight : null,
-        safetyTip: selectedRouteId == route.id ? safetyTip : null,
-        eventPenaltyApplied:
-            selectedRouteId == route.id && eventPenaltyApplied,
-        safetyAdvisoryApplied:
-            selectedRouteId == route.id && safetyAdvisoryApplied,
-        webSearchUsed: selectedRouteId == route.id && webSearchUsed,
         onSelect: () => onSelectRoute(route),
         onViewOnMap: () => onViewOnMap(route),
+        insightLoading: insightLoading,
+        showInsight: isSelected && (insight != null || insightLoading),
+        userInsight: insight?.userInsight,
+        safetyIndicator: insight?.safetyIndicator,
+        overridden: insight?.overridden ?? false,
+        overrideReason: insight?.overrideReason,
+        eventDetected: insight?.eventDetected ?? false,
+        usedLocalFallback: insight?.usedLocalFallback ?? false,
+        webSearchUsed: insight?.webSearchUsed ?? false,
+        bothAgentsFailed: insight?.failed ?? false,
       );
     }).toList();
 
@@ -404,6 +499,23 @@ class _RouteResultsBody extends StatelessWidget {
         Text(
           AccessibilityScorer.formatTimeContextLabel(),
           style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500]),
+        ),
+        if (recommendedType != null) ...[
+          const SizedBox(height: 16),
+          _AiRecommendationBanner(
+            recommendedRoute: routeLabelForType(recommendedType!),
+            confidence: null,
+            reasoning: heuristicRecommendationReason(
+              recommendedType!,
+              mobilityProfile,
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          'Tap Select Route for route insight. Uses Gemini when available; '
+          'falls back to local BGC data if rate limited.',
+          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
         ),
         const SizedBox(height: 20),
       ],
@@ -442,6 +554,121 @@ class _RouteResultsBody extends StatelessWidget {
   }
 }
 
+class _AiRecommendationBanner extends StatelessWidget {
+  const _AiRecommendationBanner({
+    required this.recommendedRoute,
+    required this.reasoning,
+    this.confidence,
+  });
+
+  final String recommendedRoute;
+  final int? confidence;
+  final String reasoning;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFF8A00), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '🤖 AI recommended',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFFFF8A00),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            recommendedRoute,
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (confidence != null)
+            Text(
+              'Confidence: $confidence%',
+              style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[700]),
+            ),
+          if (confidence != null) const SizedBox(height: 4),
+          Text(
+            '"$reasoning"',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontStyle: FontStyle.italic,
+              height: 1.4,
+              color: Colors.grey[800],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CardInsightShimmer extends StatelessWidget {
+  const _CardInsightShimmer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        width: double.infinity,
+        height: 88,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+}
+
+class _PhaseShimmer extends StatelessWidget {
+  const _PhaseShimmer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Column(
+        children: [
+          Container(
+            height: 120,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 80,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RouteCard extends StatelessWidget {
   const _RouteCard({
     required this.route,
@@ -451,17 +678,21 @@ class _RouteCard extends StatelessWidget {
     required this.safetyDisplay,
     required this.overallScore,
     required this.isSelected,
+    required this.isRecommended,
     required this.accessibilityBadgeColor,
     required this.safetyBadgeColor,
     required this.onSelect,
     required this.onViewOnMap,
     this.insightLoading = false,
-    this.insightText,
-    this.accessibilityInsight,
-    this.safetyTip,
-    this.eventPenaltyApplied = false,
-    this.safetyAdvisoryApplied = false,
+    this.showInsight = false,
+    this.userInsight,
+    this.safetyIndicator,
+    this.overridden = false,
+    this.overrideReason,
+    this.eventDetected = false,
+    this.usedLocalFallback = false,
     this.webSearchUsed = false,
+    this.bothAgentsFailed = false,
   });
 
   final RouteModel route;
@@ -471,17 +702,32 @@ class _RouteCard extends StatelessWidget {
   final int safetyDisplay;
   final int overallScore;
   final bool isSelected;
+  final bool isRecommended;
   final Color accessibilityBadgeColor;
   final Color safetyBadgeColor;
   final VoidCallback onSelect;
   final VoidCallback onViewOnMap;
+  final bool showInsight;
   final bool insightLoading;
-  final String? insightText;
-  final String? accessibilityInsight;
-  final String? safetyTip;
-  final bool eventPenaltyApplied;
-  final bool safetyAdvisoryApplied;
+  final String? userInsight;
+  final String? safetyIndicator;
+  final bool overridden;
+  final String? overrideReason;
+  final bool eventDetected;
+  final bool usedLocalFallback;
   final bool webSearchUsed;
+  final bool bothAgentsFailed;
+
+  Color get _borderColor {
+    if (isRecommended) return const Color(0xFFFF8A00);
+    if (isSelected) return AppColors.primary;
+    return const Color(0xFFE0E0E0);
+  }
+
+  double get _borderWidth {
+    if (isRecommended || isSelected) return 2;
+    return 1;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -489,23 +735,44 @@ class _RouteCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isSelected ? AppColors.primary : const Color(0xFFE0E0E0),
-          width: isSelected ? 2 : 1,
-        ),
+        side: BorderSide(color: _borderColor, width: _borderWidth),
       ),
-      elevation: isSelected ? 2 : 0,
+      elevation: isSelected || isRecommended ? 2 : 0,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              route.typeLabel,
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    route.typeLabel,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (isRecommended)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF8A00),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'AI Pick 🤖',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 10),
             Container(
@@ -536,7 +803,7 @@ class _RouteCard extends StatelessWidget {
               score: safetyDisplay,
               color: safetyBadgeColor,
             ),
-            if (contextScore.reasons.isNotEmpty || eventPenaltyApplied) ...[
+            if (contextScore.reasons.isNotEmpty || eventDetected) ...[
               const SizedBox(height: 8),
               ...contextScore.reasons.map(
                 (reason) {
@@ -548,37 +815,39 @@ class _RouteCard extends StatelessWidget {
                       : timeAdj;
                   return _ContextAdjustmentLine(
                     reason: reason,
-                    adjustment: delta,
+                    isNegative: delta < 0,
                   );
                 },
               ),
             ],
-            if (safetyScore.reasons.isNotEmpty ||
-                safetyAdvisoryApplied) ...[
+            if (safetyScore.reasons.isNotEmpty) ...[
               const SizedBox(height: 4),
               ...safetyScore.reasons.map(
-                (reason) => _SafetyAdjustmentLine(
-                  reason: reason,
-                  adjustment: SafetyScorer.adjustmentDeltaForReason(reason),
-                ),
+                (reason) {
+                  final delta = SafetyScorer.adjustmentDeltaForReason(reason);
+                  return _SafetyAdjustmentLine(
+                    reason: reason,
+                    isNegative: delta < 0,
+                  );
+                },
               ),
             ],
-            if (safetyAdvisoryApplied) ...[
+            if (eventDetected) ...[
               const SizedBox(height: 4),
               Row(
                 children: [
                   Icon(
-                    Icons.warning_amber_rounded,
+                    Icons.travel_explore,
                     size: 14,
-                    color: Colors.orange[800],
+                    color: AppColors.primary,
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    'Safety advisory found',
+                    '🔍 Web search detected nearby activity',
                     style: GoogleFonts.poppins(
                       fontSize: 11,
-                      color: Colors.orange[800],
-                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
@@ -647,19 +916,22 @@ class _RouteCard extends StatelessWidget {
                 ),
               ),
             ],
-            if (isSelected && insightLoading) ...[
+            if (showInsight && insightLoading) ...[
               const SizedBox(height: 16),
-              const _InsightShimmer(),
+              const _CardInsightShimmer(),
             ],
-            if (isSelected && insightText != null) ...[
+            if (showInsight && !insightLoading && userInsight != null) ...[
               const SizedBox(height: 16),
-              _AiInsightCard(
-                accessibilityInsight: accessibilityInsight ?? insightText!,
-                safetyTip: safetyTip ?? '',
-                safetyScore: safetyDisplay,
-                eventPenaltyApplied: eventPenaltyApplied,
-                safetyAdvisoryApplied: safetyAdvisoryApplied,
+              _AgentInsightCard(
+                userInsight: userInsight!,
+                safetyIndicator: safetyIndicator ?? 'Route appears safe',
+                safetyDisplay: safetyDisplay,
+                overridden: overridden,
+                overrideReason: overrideReason,
+                eventDetected: eventDetected,
+                usedLocalFallback: usedLocalFallback,
                 webSearchUsed: webSearchUsed,
+                bothAgentsFailed: bothAgentsFailed,
               ),
             ],
             const SizedBox(height: 12),
@@ -749,23 +1021,15 @@ class _ScoreRow extends StatelessWidget {
 class _SafetyAdjustmentLine extends StatelessWidget {
   const _SafetyAdjustmentLine({
     required this.reason,
-    required this.adjustment,
+    required this.isNegative,
   });
 
   final String reason;
-  final int adjustment;
+  final bool isNegative;
 
   @override
   Widget build(BuildContext context) {
-    final isNegative = adjustment < 0;
-    final isNeutral = adjustment == 0;
     final color = isNegative ? Colors.orange[800] : Colors.green[700];
-
-    final label = isNeutral
-        ? reason
-        : isNegative
-            ? '$reason ($adjustment)'
-            : '$reason (+$adjustment)';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -776,7 +1040,7 @@ class _SafetyAdjustmentLine extends StatelessWidget {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              label,
+              reason,
               style: GoogleFonts.poppins(
                 fontSize: 11,
                 color: color,
@@ -793,23 +1057,15 @@ class _SafetyAdjustmentLine extends StatelessWidget {
 class _ContextAdjustmentLine extends StatelessWidget {
   const _ContextAdjustmentLine({
     required this.reason,
-    required this.adjustment,
+    required this.isNegative,
   });
 
   final String reason;
-  final int adjustment;
+  final bool isNegative;
 
   @override
   Widget build(BuildContext context) {
-    final isEvent = reason == 'Event/festival detected nearby';
-    final isNegative = adjustment < 0;
     final color = isNegative ? Colors.orange[800] : Colors.green[700];
-
-    final label = isEvent
-        ? 'Event detected nearby ($adjustment)'
-        : isNegative
-            ? 'Score reduced: $reason ($adjustment)'
-            : '$reason (+$adjustment)';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -820,7 +1076,7 @@ class _ContextAdjustmentLine extends StatelessWidget {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              label,
+              reason,
               style: GoogleFonts.poppins(
                 fontSize: 11,
                 color: color,
@@ -834,73 +1090,39 @@ class _ContextAdjustmentLine extends StatelessWidget {
   }
 }
 
-class _InsightShimmer extends StatelessWidget {
-  const _InsightShimmer();
-
-  @override
-  Widget build(BuildContext context) {
-    return Shimmer.fromColors(
-      baseColor: Colors.grey[300]!,
-      highlightColor: Colors.grey[100]!,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.accent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 14,
-              width: 160,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              height: 12,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              height: 12,
-              width: 220,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AiInsightCard extends StatelessWidget {
-  const _AiInsightCard({
-    required this.accessibilityInsight,
-    required this.safetyTip,
-    required this.safetyScore,
-    required this.eventPenaltyApplied,
-    required this.safetyAdvisoryApplied,
+class _AgentInsightCard extends StatelessWidget {
+  const _AgentInsightCard({
+    required this.userInsight,
+    required this.safetyIndicator,
+    required this.safetyDisplay,
+    required this.overridden,
+    required this.eventDetected,
+    required this.usedLocalFallback,
     required this.webSearchUsed,
+    required this.bothAgentsFailed,
+    this.overrideReason,
   });
 
-  final String accessibilityInsight;
-  final String safetyTip;
-  final int safetyScore;
-  final bool eventPenaltyApplied;
-  final bool safetyAdvisoryApplied;
+  final String userInsight;
+  final String safetyIndicator;
+  final int safetyDisplay;
+  final bool overridden;
+  final String? overrideReason;
+  final bool eventDetected;
+  final bool usedLocalFallback;
   final bool webSearchUsed;
+  final bool bothAgentsFailed;
+
+  Color _safetyBadgeColor() {
+    switch (safetyIndicator) {
+      case 'Exercise caution':
+        return Colors.orange;
+      case 'Stay alert on this route':
+        return Colors.red;
+      default:
+        return Colors.green;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -927,139 +1149,87 @@ class _AiInsightCard extends StatelessWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Image.asset(
-                      AppConstants.logoPath,
-                      width: BeeconLogoSizes.insight,
-                      height: BeeconLogoSizes.insight,
-                      fit: BoxFit.contain,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'AI Accessibility & Safety Insight',
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            AccessibilityScorer.formatLiveContextLabel(),
-                            style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Accessibility',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            accessibilityInsight,
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              height: 1.5,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                          if (safetyTip.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              'Safety',
-                              style: GoogleFonts.poppins(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey[700],
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              safetyTip,
-                              style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                height: 1.5,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 10),
-                          SafetyStatusLabel(safetyScore: safetyScore),
-                          if (safetyAdvisoryApplied) ...[
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.warning_amber_rounded,
-                                  size: 14,
-                                  color: Colors.orange[800],
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Safety advisory found',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 11,
-                                    color: Colors.orange[800],
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ] else if (eventPenaltyApplied) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.travel_explore,
-                                  size: 14,
-                                  color: AppColors.primary,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Web search detected nearby activity',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 11,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ] else if (webSearchUsed) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.travel_explore,
-                                  size: 14,
-                                  color: Colors.grey[600],
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Live web context included',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 11,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
+                    Text(
+                      'AI Accessibility & Safety Insight',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    Text(
+                      userInsight,
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _safetyBadgeColor().withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        safetyIndicator,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _safetyBadgeColor(),
+                        ),
+                      ),
+                    ),
+                    if (overridden && overrideReason != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Route updated by AI validator: $overrideReason',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          color: Colors.orange[800],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                    if (eventDetected && webSearchUsed) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '🔍 Live web data used',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ] else if (usedLocalFallback) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Using local BGC context data',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                    if (bothAgentsFailed) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'AI insight temporarily unavailable.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

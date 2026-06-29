@@ -1,4 +1,5 @@
 import 'package:beecon_app/features/home/data/bgc_destinations.dart';
+import 'package:beecon_app/features/home/data/bgc_landmarks.dart';
 import 'package:latlong2/latlong.dart';
 
 /// A named point used as an origin or destination for routing.
@@ -24,6 +25,15 @@ class RouteLocation {
       label: currentLocationLabel,
       lat: lat,
       lng: lng,
+      isCurrentLocation: true,
+    );
+  }
+
+  factory RouteLocation.bgcDefault() {
+    return RouteLocation(
+      label: currentLocationLabel,
+      lat: BgcLandmarks.defaultOrigin.latitude,
+      lng: BgcLandmarks.defaultOrigin.longitude,
       isCurrentLocation: true,
     );
   }

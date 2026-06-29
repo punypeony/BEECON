@@ -7,6 +7,7 @@ import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/utils/time_utils.dart';
 import 'package:beecon_app/features/home/data/bgc_accessibility_data.dart';
+import 'package:beecon_app/features/home/data/bgc_landmarks.dart';
 import 'package:beecon_app/features/home/screens/widgets/ai_insight_banner.dart';
 import 'package:beecon_app/features/home/screens/widgets/emergency_sheet.dart';
 import 'package:beecon_app/features/home/screens/widgets/heatmap_legend.dart';
@@ -81,6 +82,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (ref.read(selectedOriginProvider) == null) {
+        ref.read(selectedOriginProvider.notifier).state =
+            RouteLocation.bgcDefault();
+      }
+    });
     _initCurrentLocation();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mapController.move(BgcMapData.center, BgcMapData.defaultZoom);
@@ -138,7 +145,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       setState(() => _locationLoading = false);
     } catch (_) {
-      if (mounted) setState(() => _locationLoading = false);
+      if (mounted) {
+        final origin = ref.read(selectedOriginProvider);
+        if (origin == null) {
+          ref.read(selectedOriginProvider.notifier).state =
+              RouteLocation.bgcDefault();
+          ref.read(currentGpsLocationProvider.notifier).state =
+              BgcLandmarks.defaultOrigin;
+        }
+        setState(() => _locationLoading = false);
+      }
     }
   }
 
@@ -250,23 +266,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     ref.read(routesLoadingProvider.notifier).state = true;
 
-    final polylines = await _orsService.getAllRoutes(
+    final bundle = await _orsService.getAllRoutes(
       origin.lat,
       origin.lng,
       destination.lat,
       destination.lng,
     );
 
-    ref.read(routePolylinesProvider.notifier).state = polylines;
+    final snapped = _orsService.snapBundleToPins(
+      bundle,
+      originLat: origin.lat,
+      originLng: origin.lng,
+      destLat: destination.lat,
+      destLng: destination.lng,
+    );
+
+    ref.read(orsRouteBundleProvider.notifier).state = snapped;
+    ref.read(routePolylinesProvider.notifier).state =
+        _orsService.polylinesFromBundle(
+      snapped,
+      originLat: origin.lat,
+      originLng: origin.lng,
+      destLat: destination.lat,
+      destLng: destination.lng,
+    );
+    ref.read(recommendedRouteTypeProvider.notifier).state = null;
+    ref.read(routeAgentPipelineProvider.notifier).state = null;
     ref.read(highlightedRouteTypeProvider.notifier).state = null;
     ref.read(routesLoadingProvider.notifier).state = false;
 
     _fitMapToPoints([
       origin.position,
       destination.position,
-      ...polylines.fastest,
-      ...polylines.accessible,
-      ...polylines.balanced,
+      ...snapped.fastest.polylinePoints,
+      ...snapped.accessible.polylinePoints,
+      ...snapped.balanced.polylinePoints,
     ]);
 
     if (!mounted) return;
@@ -310,20 +344,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   List<Polyline> _buildRoutePolylines(
     RoutePolylines? polylines,
     RouteType? highlighted,
+    RouteType? recommended,
   ) {
     if (polylines == null) return [];
+
+    final activeType = highlighted ?? recommended;
 
     return RouteType.values.map((type) {
       final points = polylines.forType(type);
       if (points.length < 2) return null;
 
-      final isHighlighted = highlighted == null || highlighted == type;
+      final isActive = activeType == null || activeType == type;
       return Polyline(
         points: points,
         color: RoutePolylines.colorForType(type).withValues(
-          alpha: isHighlighted ? 1.0 : 0.4,
+          alpha: isActive ? 1.0 : 0.3,
         ),
-        strokeWidth: highlighted == type ? 7.0 : 5.0,
+        strokeWidth: isActive ? 7.0 : 3.0,
       );
     }).whereType<Polyline>().toList();
   }
@@ -555,6 +592,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final destination = ref.watch(selectedDestinationProvider);
     final polylines = ref.watch(routePolylinesProvider);
     final highlighted = ref.watch(highlightedRouteTypeProvider);
+    final recommended = ref.watch(recommendedRouteTypeProvider);
     final heatmapOverlay = ref.watch(heatmapOverlayProvider);
     final heatmapOn = heatmapOverlay != null;
     final routesLoading = ref.watch(routesLoadingProvider);
@@ -565,6 +603,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (next && previous != next) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _showReportTapModeSnackBar();
+        });
+      }
+    });
+
+    ref.listen<RouteType?>(highlightedRouteTypeProvider, (previous, next) {
+      if (next != null && polylines != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _fitMapToPoints(polylines.forType(next));
         });
       }
     });
@@ -656,6 +703,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   destination: destination,
                   polylines: polylines,
                   highlighted: highlighted,
+                  recommended: recommended,
                   heatmapOverlay: heatmapOverlay,
                   heatmapOn: heatmapOn,
                   reportTapMode: reportTapMode,
@@ -734,6 +782,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required RouteLocation? destination,
     required RoutePolylines? polylines,
     required RouteType? highlighted,
+    required RouteType? recommended,
     required HeatmapOverlay? heatmapOverlay,
     required bool heatmapOn,
     required bool reportTapMode,
@@ -776,6 +825,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     polylines: _buildRoutePolylines(
                       polylines,
                       highlighted,
+                      recommended,
                     ),
                   ),
                 if (!heatmapOn)

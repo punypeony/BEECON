@@ -144,6 +144,9 @@ class _LocationSearchPanelState extends ConsumerState<LocationSearchPanel> {
     ref.read(destinationSearchQueryProvider.notifier).state = '';
     ref.read(selectedDestinationProvider.notifier).state = null;
     ref.read(routePolylinesProvider.notifier).state = null;
+    ref.read(orsRouteBundleProvider.notifier).state = null;
+    ref.read(recommendedRouteTypeProvider.notifier).state = null;
+    ref.read(routeAgentPipelineProvider.notifier).state = null;
     widget.onDestinationChanged();
   }
 
@@ -165,6 +168,9 @@ class _LocationSearchPanelState extends ConsumerState<LocationSearchPanel> {
     ref.read(destinationSearchQueryProvider.notifier).state =
         _destinationController.text;
     ref.read(routePolylinesProvider.notifier).state = null;
+    ref.read(orsRouteBundleProvider.notifier).state = null;
+    ref.read(recommendedRouteTypeProvider.notifier).state = null;
+    ref.read(routeAgentPipelineProvider.notifier).state = null;
 
     widget.onOriginChanged();
     widget.onDestinationChanged();

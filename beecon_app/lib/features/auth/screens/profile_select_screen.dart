@@ -1,20 +1,23 @@
+import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
 import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class ProfileSelectScreen extends StatefulWidget {
+class ProfileSelectScreen extends ConsumerStatefulWidget {
   const ProfileSelectScreen({super.key});
 
   @override
-  State<ProfileSelectScreen> createState() => _ProfileSelectScreenState();
+  ConsumerState<ProfileSelectScreen> createState() =>
+      _ProfileSelectScreenState();
 }
 
-class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
+class _ProfileSelectScreenState extends ConsumerState<ProfileSelectScreen> {
   static const List<_ProfileOption> _profiles = [
     _ProfileOption(icon: Icons.accessible, label: 'Wheelchair'),
     _ProfileOption(icon: Icons.elderly, label: 'Senior Citizen'),
@@ -30,6 +33,7 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
     if (_selectedLabel == null) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(AppConstants.selectedProfileKey, _selectedLabel!);
+    ref.read(geminiServiceProvider).clearAgentCache();
     if (mounted) context.go(AppConstants.home);
   }
 
