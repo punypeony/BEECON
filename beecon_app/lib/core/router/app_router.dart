@@ -1,6 +1,7 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:beecon_app/features/auth/screens/splash_screen.dart';
 import 'package:beecon_app/features/auth/screens/onboarding_screen.dart';
 import 'package:beecon_app/features/auth/screens/profile_select_screen.dart';
@@ -121,6 +122,90 @@ class HomeShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentIndex = _currentIndex(context);
+    final isDesktop = ResponsiveLayout.isDesktop(context);
+    final extended = ResponsiveLayout.isWideDesktop(context);
+
+    if (isDesktop) {
+      return Scaffold(
+        body: Row(
+          children: [
+            NavigationRail(
+              extended: extended,
+              minExtendedWidth: 200,
+              selectedIndex: currentIndex,
+              onDestinationSelected: (index) => _onTap(context, ref, index),
+              labelType: extended
+                  ? NavigationRailLabelType.none
+                  : NavigationRailLabelType.all,
+              backgroundColor: Colors.white,
+              indicatorColor: AppColors.selectedBackground,
+              selectedIconTheme: const IconThemeData(color: AppColors.primary),
+              unselectedIconTheme: IconThemeData(color: Colors.grey[500]),
+              selectedLabelTextStyle: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+              unselectedLabelTextStyle: GoogleFonts.poppins(
+                fontSize: 13,
+                color: Colors.grey[600],
+              ),
+              leading: Padding(
+                padding: EdgeInsets.only(
+                  top: 16,
+                  bottom: extended ? 16 : 8,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset(
+                      AppConstants.logoPath,
+                      height: extended ? 40 : 32,
+                      fit: BoxFit.contain,
+                    ),
+                    if (extended) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Beecon',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              destinations: const [
+                NavigationRailDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home),
+                  label: Text('Home'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.route_outlined),
+                  selectedIcon: Icon(Icons.route),
+                  label: Text('Routes'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.report_outlined),
+                  selectedIcon: Icon(Icons.report),
+                  label: Text('Report'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person),
+                  label: Text('Profile'),
+                ),
+              ],
+            ),
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(child: child),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       body: child,

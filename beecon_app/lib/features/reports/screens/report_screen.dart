@@ -5,6 +5,7 @@ import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
+import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:beecon_app/features/reports/models/report_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -249,10 +250,11 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
         logoHeader: BeeconLogoHeader(title: 'Report an Issue'),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        child: ResponsivePageContent(
+          maxWidth: ResponsiveLayout.formMaxWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Text(
               'Report an accessibility obstacle',
               style: GoogleFonts.poppins(
@@ -473,6 +475,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 }

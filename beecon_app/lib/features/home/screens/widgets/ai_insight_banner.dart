@@ -91,7 +91,7 @@ class _AiInsightBannerState extends State<AiInsightBanner> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '🐝 AI Accessibility Insight',
+                            'AI Accessibility Insight',
                             style: GoogleFonts.poppins(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,

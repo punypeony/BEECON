@@ -1,5 +1,6 @@
 import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
+import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:beecon_app/features/home/data/bgc_destinations.dart';
 import 'package:beecon_app/features/routing/models/route_location.dart';
 import 'package:flutter/material.dart';
@@ -203,6 +204,111 @@ class _LocationSearchPanelState extends ConsumerState<LocationSearchPanel> {
 
     final originSuggestions = ref.watch(originSearchSuggestionsProvider);
     final destinationSuggestions = ref.watch(destinationSearchSuggestionsProvider);
+    final isDesktop = ResponsiveLayout.isDesktop(context);
+
+    if (isDesktop) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    _SearchBar(
+                      controller: _originController,
+                      focusNode: _originFocusNode,
+                      hintText: RouteLocation.currentLocationLabel,
+                      icon: Icons.my_location,
+                      showClear: _originController.text.isNotEmpty,
+                      onClear: _clearOrigin,
+                      onTap: () {
+                        ref.read(activeSearchFieldProvider.notifier).state =
+                            ActiveSearchField.origin;
+                      },
+                      onSubmitted: _onOriginSubmitted,
+                    ),
+                    if (activeField == ActiveSearchField.origin) ...[
+                      const SizedBox(height: 4),
+                      _SuggestionsDropdown(
+                        showCurrentLocationOption: true,
+                        suggestions: originSuggestions,
+                        query: originQuery,
+                        onSelectCurrentLocation: _selectCurrentLocation,
+                        onSelect: _selectOrigin,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 10, left: 8, right: 8),
+                child: Material(
+                  color: AppColors.accent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: _swapLocations,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.swap_horiz,
+                        color: AppColors.primary,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    _SearchBar(
+                      controller: _destinationController,
+                      focusNode: _destinationFocusNode,
+                      hintText: 'Where do you want to go?',
+                      icon: Icons.search,
+                      showClear: _destinationController.text.isNotEmpty,
+                      onClear: _clearDestination,
+                      onTap: () {
+                        ref.read(activeSearchFieldProvider.notifier).state =
+                            ActiveSearchField.destination;
+                      },
+                      onSubmitted: _onDestinationSubmitted,
+                    ),
+                    if (activeField == ActiveSearchField.destination) ...[
+                      const SizedBox(height: 4),
+                      _SuggestionsDropdown(
+                        showCurrentLocationOption: false,
+                        suggestions: destinationSuggestions,
+                        query: destinationQuery,
+                        onSelectCurrentLocation: _selectCurrentLocation,
+                        onSelect: _selectDestination,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (canGetRoutes) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: widget.onGetRoutes,
+                icon: const Icon(Icons.directions),
+                label: Text(
+                  'Get Routes',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

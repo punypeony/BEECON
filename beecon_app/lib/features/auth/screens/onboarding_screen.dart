@@ -61,8 +61,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: Column(
-          children: [
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: Column(
+              children: [
             Align(
               alignment: Alignment.topRight,
               child: TextButton(
@@ -115,7 +118,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
             const SizedBox(height: 24),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );

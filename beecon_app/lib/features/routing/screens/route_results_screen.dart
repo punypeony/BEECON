@@ -1,5 +1,6 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
+import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/services/gemini_service.dart';
 import 'package:beecon_app/core/storage/ai_insight_storage.dart';
@@ -41,17 +42,7 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
   bool _safetyAdvisoryApplied = false;
   bool _webSearchUsed = false;
 
-  Color _scoreBadgeColor(int score) {
-    if (score >= 80) return Colors.green;
-    if (score >= 50) return Colors.orange;
-    return Colors.red;
-  }
-
-  String _scoreEmoji(int score) {
-    if (score >= 80) return '🟢';
-    if (score >= 50) return '🟠';
-    return '🔴';
-  }
+  Color _scoreBadgeColor(int score) => scoreBadgeColor(score);
 
   void _resetRouteSelection() {
     _selectedRouteId = null;
@@ -249,7 +240,6 @@ class _RouteResultsScreenState extends ConsumerState<RouteResultsScreen> {
               displayContextFor: _displayContextFor,
               displaySafetyFor: _displaySafetyFor,
               scoreBadgeColor: _scoreBadgeColor,
-              scoreEmoji: _scoreEmoji,
               onSelectRoute: (route) => _selectRoute(route, origin, destination),
               onViewOnMap: (route) {
                 ref.read(highlightedRouteTypeProvider.notifier).state =
@@ -338,7 +328,6 @@ class _RouteResultsBody extends StatelessWidget {
     required this.displayContextFor,
     required this.displaySafetyFor,
     required this.scoreBadgeColor,
-    required this.scoreEmoji,
     required this.onSelectRoute,
     required this.onViewOnMap,
   });
@@ -356,7 +345,6 @@ class _RouteResultsBody extends StatelessWidget {
   final ContextScoreModel Function(RouteModel route) displayContextFor;
   final SafetyScoreModel Function(RouteModel route) displaySafetyFor;
   final Color Function(int score) scoreBadgeColor;
-  final String Function(int score) scoreEmoji;
   final ValueChanged<RouteModel> onSelectRoute;
   final ValueChanged<RouteModel> onViewOnMap;
 
@@ -367,70 +355,89 @@ class _RouteResultsBody extends StatelessWidget {
       destination: destination,
     );
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    final routeCards = routes.map((route) {
+      final contextScore = displayContextFor(route);
+      final safetyScore = displaySafetyFor(route);
+      final accessibilityDisplay = contextScore.adjustedScore;
+      final safetyDisplay = safetyScore.finalScore;
+      final overallScore =
+          ((accessibilityDisplay + safetyDisplay) / 2).round();
+
+      return _RouteCard(
+        route: route,
+        contextScore: contextScore,
+        safetyScore: safetyScore,
+        accessibilityDisplay: accessibilityDisplay,
+        safetyDisplay: safetyDisplay,
+        overallScore: overallScore,
+        isSelected: selectedRouteId == route.id,
+        accessibilityBadgeColor: scoreBadgeColor(accessibilityDisplay),
+        safetyBadgeColor: scoreBadgeColor(safetyDisplay),
+        insightLoading: selectedRouteId == route.id && insightLoading,
+        insightText: selectedRouteId == route.id ? insightText : null,
+        accessibilityInsight:
+            selectedRouteId == route.id ? accessibilityInsight : null,
+        safetyTip: selectedRouteId == route.id ? safetyTip : null,
+        eventPenaltyApplied:
+            selectedRouteId == route.id && eventPenaltyApplied,
+        safetyAdvisoryApplied:
+            selectedRouteId == route.id && safetyAdvisoryApplied,
+        webSearchUsed: selectedRouteId == route.id && webSearchUsed,
+        onSelect: () => onSelectRoute(route),
+        onViewOnMap: () => onViewOnMap(route),
+      );
+    }).toList();
+
+    final header = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           '${origin.label} → ${destination.label}',
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            color: Colors.grey[600],
-          ),
+          style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
         ),
         const SizedBox(height: 4),
         Text(
           'Choose a route based on accessibility and safety',
-          style: GoogleFonts.poppins(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 6),
         Text(
           AccessibilityScorer.formatTimeContextLabel(),
-          style: GoogleFonts.poppins(
-            fontSize: 12,
-            color: Colors.grey[500],
-          ),
+          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500]),
         ),
         const SizedBox(height: 20),
-        ...routes.map(
-          (route) {
-            final contextScore = displayContextFor(route);
-            final safetyScore = displaySafetyFor(route);
-            final accessibilityDisplay = contextScore.adjustedScore;
-            final safetyDisplay = safetyScore.finalScore;
-            final overallScore =
-                ((accessibilityDisplay + safetyDisplay) / 2).round();
-
-            return _RouteCard(
-              route: route,
-              contextScore: contextScore,
-              safetyScore: safetyScore,
-              accessibilityDisplay: accessibilityDisplay,
-              safetyDisplay: safetyDisplay,
-              overallScore: overallScore,
-              isSelected: selectedRouteId == route.id,
-              accessibilityBadgeColor: scoreBadgeColor(accessibilityDisplay),
-              safetyBadgeColor: scoreBadgeColor(safetyDisplay),
-              accessibilityEmoji: scoreEmoji(accessibilityDisplay),
-              safetyEmoji: scoreEmoji(safetyDisplay),
-              insightLoading: selectedRouteId == route.id && insightLoading,
-              insightText: selectedRouteId == route.id ? insightText : null,
-              accessibilityInsight:
-                  selectedRouteId == route.id ? accessibilityInsight : null,
-              safetyTip: selectedRouteId == route.id ? safetyTip : null,
-              eventPenaltyApplied:
-                  selectedRouteId == route.id && eventPenaltyApplied,
-              safetyAdvisoryApplied:
-                  selectedRouteId == route.id && safetyAdvisoryApplied,
-              webSearchUsed: selectedRouteId == route.id && webSearchUsed,
-              onSelect: () => onSelectRoute(route),
-              onViewOnMap: () => onViewOnMap(route),
-            );
-          },
-        ),
       ],
+    );
+
+    if (ResponsiveLayout.isDesktop(context)) {
+      return ResponsivePageContent(
+        child: ListView(
+          children: [
+            header,
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < routeCards.length; i++)
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: i < routeCards.length - 1 ? 16 : 0,
+                        ),
+                        child: routeCards[i],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [header, ...routeCards],
     );
   }
 }
@@ -446,8 +453,6 @@ class _RouteCard extends StatelessWidget {
     required this.isSelected,
     required this.accessibilityBadgeColor,
     required this.safetyBadgeColor,
-    required this.accessibilityEmoji,
-    required this.safetyEmoji,
     required this.onSelect,
     required this.onViewOnMap,
     this.insightLoading = false,
@@ -468,8 +473,6 @@ class _RouteCard extends StatelessWidget {
   final bool isSelected;
   final Color accessibilityBadgeColor;
   final Color safetyBadgeColor;
-  final String accessibilityEmoji;
-  final String safetyEmoji;
   final VoidCallback onSelect;
   final VoidCallback onViewOnMap;
   final bool insightLoading;
@@ -523,14 +526,12 @@ class _RouteCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             _ScoreRow(
-              emoji: accessibilityEmoji,
               label: 'Accessibility',
               score: accessibilityDisplay,
               color: accessibilityBadgeColor,
             ),
             const SizedBox(height: 6),
             _ScoreRow(
-              emoji: safetyEmoji,
               label: 'Safety Score',
               score: safetyDisplay,
               color: safetyBadgeColor,
@@ -564,13 +565,23 @@ class _RouteCard extends StatelessWidget {
             ],
             if (safetyAdvisoryApplied) ...[
               const SizedBox(height: 4),
-              Text(
-                '⚠️ Safety advisory found',
-                style: GoogleFonts.poppins(
-                  fontSize: 11,
-                  color: Colors.orange[800],
-                  fontWeight: FontWeight.w600,
-                ),
+              Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 14,
+                    color: Colors.orange[800],
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Safety advisory found',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: Colors.orange[800],
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ],
             const SizedBox(height: 12),
@@ -689,21 +700,13 @@ class _RouteCard extends StatelessWidget {
   }
 }
 
-Color scoreBadgeColor(int score) {
-  if (score >= 80) return Colors.green;
-  if (score >= 50) return Colors.orange;
-  return Colors.red;
-}
-
 class _ScoreRow extends StatelessWidget {
   const _ScoreRow({
-    required this.emoji,
     required this.label,
     required this.score,
     required this.color,
   });
 
-  final String emoji;
   final String label;
   final int score;
   final Color color;
@@ -712,7 +715,7 @@ class _ScoreRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(emoji, style: const TextStyle(fontSize: 14)),
+        ScoreStatusDot(color: color),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -769,7 +772,7 @@ class _SafetyAdjustmentLine extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(isNegative ? '⚠️' : '✅', style: const TextStyle(fontSize: 12)),
+          AdjustmentStatusIcon(isNegative: isNegative),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -813,7 +816,7 @@ class _ContextAdjustmentLine extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(isNegative ? '⚠️' : '✅', style: const TextStyle(fontSize: 12)),
+          AdjustmentStatusIcon(isNegative: isNegative),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -898,12 +901,6 @@ class _AiInsightCard extends StatelessWidget {
   final bool eventPenaltyApplied;
   final bool safetyAdvisoryApplied;
   final bool webSearchUsed;
-
-  String get _safetyIndicator {
-    if (safetyScore >= 80) return '🟢 Route appears safe';
-    if (safetyScore >= 50) return '🟠 Exercise caution';
-    return '🔴 Stay alert on this route';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -999,42 +996,65 @@ class _AiInsightCard extends StatelessWidget {
                             ),
                           ],
                           const SizedBox(height: 10),
-                          Text(
-                            _safetyIndicator,
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[800],
-                            ),
-                          ),
+                          SafetyStatusLabel(safetyScore: safetyScore),
                           if (safetyAdvisoryApplied) ...[
                             const SizedBox(height: 6),
-                            Text(
-                              '⚠️ Safety advisory found',
-                              style: GoogleFonts.poppins(
-                                fontSize: 11,
-                                color: Colors.orange[800],
-                                fontWeight: FontWeight.w600,
-                              ),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 14,
+                                  color: Colors.orange[800],
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Safety advisory found',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    color: Colors.orange[800],
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ] else if (eventPenaltyApplied) ...[
                             const SizedBox(height: 8),
-                            Text(
-                              '🔍 Web search detected nearby activity',
-                              style: GoogleFonts.poppins(
-                                fontSize: 11,
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.travel_explore,
+                                  size: 14,
+                                  color: AppColors.primary,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Web search detected nearby activity',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
                           ] else if (webSearchUsed) ...[
                             const SizedBox(height: 8),
-                            Text(
-                              '🔍 Live web context included',
-                              style: GoogleFonts.poppins(
-                                fontSize: 11,
-                                color: Colors.grey[600],
-                              ),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.travel_explore,
+                                  size: 14,
+                                  color: Colors.grey[600],
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Live web context included',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ],

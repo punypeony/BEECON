@@ -1,5 +1,6 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
+import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:beecon_app/core/providers/destination_provider.dart';
 import 'package:beecon_app/core/services/ors_service.dart';
 import 'package:beecon_app/core/storage/hive_service.dart';
@@ -36,6 +37,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final MapController _mapController = MapController();
+  final GlobalKey _flutterMapKey = GlobalKey();
   final OrsService _orsService = OrsService();
   bool _locationLoading = true;
   MapOptions? _mapOptions;
@@ -46,24 +48,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       initialZoom: BgcMapData.defaultZoom,
       minZoom: BgcMapData.minZoom,
       maxZoom: BgcMapData.maxZoom,
-      cameraConstraint: CameraConstraint.contain(
-        bounds: LatLngBounds(
-          LatLng(
-            BgcMapData.boundsSouthWestLat,
-            BgcMapData.boundsSouthWestLng,
-          ),
-          LatLng(
-            BgcMapData.boundsNorthEastLat,
-            BgcMapData.boundsNorthEastLng,
-          ),
-        ),
-      ),
       onMapEvent: _onMapEvent,
       onTap: _handleMapTap,
       interactionOptions: const InteractionOptions(
         flags: InteractiveFlag.all,
       ),
     );
+  }
+
+  void _clampMapCameraToBounds() {
+    try {
+      final zoom = _mapController.camera.zoom.clamp(
+        BgcMapData.minZoom,
+        BgcMapData.maxZoom,
+      );
+      final center = _mapController.camera.center;
+
+      if (!BgcMapData.isWithinBounds(center)) {
+        _mapController.move(BgcMapData.center, zoom);
+      }
+    } catch (_) {
+      // Map controller not attached yet.
+    }
   }
 
   void _handleMapTap(TapPosition tapPosition, LatLng point) {
@@ -296,6 +302,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _mapController.fitCamera(
       CameraFit.bounds(bounds: constrained, padding: const EdgeInsets.all(48)),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _clampMapCameraToBounds();
+    });
   }
 
   List<Polyline> _buildRoutePolylines(
@@ -574,6 +583,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: BeeconBrandedAppBar(
         title: const BeeconAppBarTitle(),
         actions: [
+          if (ResponsiveLayout.isDesktop(context))
+            IconButton(
+              icon: const Icon(Icons.shield, color: Colors.red),
+              tooltip: 'Emergency assistance',
+              onPressed: () => showEmergencySheet(context, ref),
+            ),
           IconButton(
             icon: const Icon(Icons.help_outline, color: AppColors.primary),
             tooltip: 'How it works',
@@ -596,260 +611,310 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'emergency',
-        backgroundColor: Colors.red,
-        onPressed: () => showEmergencySheet(context, ref),
-        child: const Icon(Icons.shield, color: Colors.white),
-      ),
+      floatingActionButton: ResponsiveLayout.isDesktop(context)
+          ? null
+          : FloatingActionButton(
+              heroTag: 'emergency',
+              backgroundColor: Colors.red,
+              onPressed: () => showEmergencySheet(context, ref),
+              child: const Icon(Icons.shield, color: Colors.white),
+            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: ResponsiveLayout.pagePadding(context),
+          child: Flex(
+            direction: ResponsiveLayout.isDesktop(context)
+                ? Axis.horizontal
+                : Axis.vertical,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              LocationSearchPanel(
-                onGetRoutes: routesLoading ? () {} : _getRoutes,
-                onOriginChanged: _refreshMapMarkers,
-                onDestinationChanged: _refreshMapMarkers,
-              ),
-              if (routesLoading)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: LinearProgressIndicator(
-                    color: AppColors.primary,
-                    backgroundColor: AppColors.accent,
+              if (ResponsiveLayout.isDesktop(context))
+                SizedBox(
+                  width: ResponsiveLayout.homeSidePanelWidth,
+                  child: SingleChildScrollView(
+                    child: _buildSidePanel(
+                      context,
+                      routesLoading: routesLoading,
+                      reportTapMode: reportTapMode,
+                    ),
                   ),
+                )
+              else
+                _buildSidePanel(
+                  context,
+                  routesLoading: routesLoading,
+                  reportTapMode: reportTapMode,
                 ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: () => closeLocationSearchDropdown(ref),
-                behavior: HitTestBehavior.translucent,
-                child: const AiInsightBanner(),
-              ),
-              const SizedBox(height: 8),
               SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed:
-                      reportTapMode ? _cancelReportTapMode : _startReportTapMode,
-                  icon: Icon(
-                    reportTapMode
-                        ? Icons.close
-                        : Icons.report_problem_outlined,
-                    color: reportTapMode ? Colors.red : AppColors.primary,
-                  ),
-                  label: Text(
-                    reportTapMode ? 'Cancel' : 'Report an issue',
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.w600,
-                      color: reportTapMode ? Colors.red : AppColors.primary,
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(
-                      color: reportTapMode ? Colors.red : AppColors.primary,
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
+                width: ResponsiveLayout.isDesktop(context) ? 24 : 0,
+                height: ResponsiveLayout.isDesktop(context) ? 0 : 8,
               ),
-              const SizedBox(height: 8),
               Expanded(
-                child: GestureDetector(
-                  onTap: () => closeLocationSearchDropdown(ref),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: ValueListenableBuilder<Box<ReportModel>>(
-                      valueListenable: HiveService.reportsBox.listenable(),
-                      builder: (context, box, _) {
-                        final reports = HiveService.getAllReports();
-                        return Stack(
-                          children: [
-                            FlutterMap(
-                              mapController: _mapController,
-                              options: _stableMapOptions,
-                              children: [
-                                TileLayer(
-                                  urlTemplate:
-                                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                  userAgentPackageName: 'com.beecon.beecon_app',
-                                ),
-                                PolygonLayer(
-                                  polygons: [
-                                    Polygon(
-                                      points: BgcMapData.boundaryPolygon,
-                                      color: BgcMapData.boundaryColor
-                                          .withValues(alpha: 0.2),
-                                      borderColor: BgcMapData.boundaryColor,
-                                      borderStrokeWidth: 2,
-                                    ),
-                                  ],
-                                ),
-                                if (heatmapOn)
-                                  CircleLayer(
-                                    circles: heatmapOverlay ==
-                                            HeatmapOverlay.safety
-                                        ? _buildSafetyHeatmapCircles()
-                                        : _buildAccessibilityHeatmapCircles(),
-                                  ),
-                                if (polylines != null)
-                                  PolylineLayer(
-                                    polylines: _buildRoutePolylines(
-                                      polylines,
-                                      highlighted,
-                                    ),
-                                  ),
-                                if (!heatmapOn)
-                                  MarkerLayer(
-                                    markers: _buildAccessibilityMarkers(),
-                                  ),
-                                MarkerLayer(
-                                  markers: [
-                                    ..._buildReportMarkers(reports),
-                                    if (pendingReportPin != null)
-                                      _buildPendingReportPin(
-                                        pendingReportPin,
-                                      )!,
-                                    ..._buildRouteMarkers(
-                                      origin,
-                                      destination,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            if (reportTapMode)
-                              Positioned(
-                                top: 12,
-                                left: 12,
-                                right: 12,
-                                child: Material(
-                                  elevation: 2,
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: AppColors.selectedBackground,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 10,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.touch_app,
-                                          color: AppColors.primary,
-                                          size: 20,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'Tap the map to place your report',
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 2,
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500,
-                                              color: AppColors.primary,
-                                            ),
-                                          ),
-                                        ),
-                                        GestureDetector(
-                                          onTap: _cancelReportTapMode,
-                                          child: const Icon(
-                                            Icons.close,
-                                            size: 18,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (destination == null && !reportTapMode)
-                              Center(
-                                child: Container(
-                                  margin: const EdgeInsets.all(24),
-                                  padding: const EdgeInsets.all(20),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    'Search a destination to get started',
-                                    textAlign: TextAlign.center,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey[700],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (heatmapOn)
-                              Positioned(
-                                right: 12,
-                                bottom: 12,
-                                child: HeatmapLegend(overlay: heatmapOverlay),
-                              ),
-                            Positioned(
-                              left: 12,
-                              bottom: heatmapOn ? 72 : 12,
-                              child: _HeatmapModeToggle(
-                                activeOverlay: heatmapOverlay,
-                                onSelect: (overlay) {
-                                  ref
-                                      .read(heatmapOverlayProvider.notifier)
-                                      .state = overlay;
-                                },
-                              ),
-                            ),
-                            if (_locationLoading)
-                              Positioned(
-                                top: 12,
-                                right: 12,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Locating…',
-                                        style: GoogleFonts.poppins(fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
+                child: _buildMapSection(
+                  origin: origin,
+                  destination: destination,
+                  polylines: polylines,
+                  highlighted: highlighted,
+                  heatmapOverlay: heatmapOverlay,
+                  heatmapOn: heatmapOn,
+                  reportTapMode: reportTapMode,
+                  pendingReportPin: pendingReportPin,
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSidePanel(
+    BuildContext context, {
+    required bool routesLoading,
+    required bool reportTapMode,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LocationSearchPanel(
+          onGetRoutes: routesLoading ? () {} : _getRoutes,
+          onOriginChanged: _refreshMapMarkers,
+          onDestinationChanged: _refreshMapMarkers,
+        ),
+        if (routesLoading)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: LinearProgressIndicator(
+              color: AppColors.primary,
+              backgroundColor: AppColors.accent,
+            ),
+          ),
+        const SizedBox(height: 12),
+        GestureDetector(
+          onTap: () => closeLocationSearchDropdown(ref),
+          behavior: HitTestBehavior.translucent,
+          child: const AiInsightBanner(),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed:
+                reportTapMode ? _cancelReportTapMode : _startReportTapMode,
+            icon: Icon(
+              reportTapMode ? Icons.close : Icons.report_problem_outlined,
+              color: reportTapMode ? Colors.red : AppColors.primary,
+            ),
+            label: Text(
+              reportTapMode ? 'Cancel' : 'Report an issue',
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600,
+                color: reportTapMode ? Colors.red : AppColors.primary,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(
+                color: reportTapMode ? Colors.red : AppColors.primary,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMapSection({
+    required RouteLocation? origin,
+    required RouteLocation? destination,
+    required RoutePolylines? polylines,
+    required RouteType? highlighted,
+    required HeatmapOverlay? heatmapOverlay,
+    required bool heatmapOn,
+    required bool reportTapMode,
+    required LatLng? pendingReportPin,
+  }) {
+    return GestureDetector(
+      onTap: () => closeLocationSearchDropdown(ref),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          children: [
+            FlutterMap(
+              key: _flutterMapKey,
+              mapController: _mapController,
+              options: _stableMapOptions,
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.beecon.beecon_app',
+                ),
+                PolygonLayer(
+                  polygons: [
+                    Polygon(
+                      points: BgcMapData.boundaryPolygon,
+                      color: BgcMapData.boundaryColor.withValues(alpha: 0.2),
+                      borderColor: BgcMapData.boundaryColor,
+                      borderStrokeWidth: 2,
+                    ),
+                  ],
+                ),
+                if (heatmapOn)
+                  CircleLayer(
+                    circles: heatmapOverlay == HeatmapOverlay.safety
+                        ? _buildSafetyHeatmapCircles()
+                        : _buildAccessibilityHeatmapCircles(),
+                  ),
+                if (polylines != null)
+                  PolylineLayer(
+                    polylines: _buildRoutePolylines(
+                      polylines,
+                      highlighted,
+                    ),
+                  ),
+                if (!heatmapOn)
+                  MarkerLayer(markers: _buildAccessibilityMarkers()),
+                ValueListenableBuilder<Box<ReportModel>>(
+                  valueListenable: HiveService.reportsBox.listenable(),
+                  builder: (context, box, _) {
+                    return MarkerLayer(
+                      markers: _buildReportMarkers(
+                        HiveService.getAllReports(),
+                      ),
+                    );
+                  },
+                ),
+                MarkerLayer(
+                  markers: [
+                    if (pendingReportPin != null)
+                      _buildPendingReportPin(pendingReportPin)!,
+                    ..._buildRouteMarkers(origin, destination),
+                  ],
+                ),
+              ],
+            ),
+            if (reportTapMode)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    right: 12,
+                    child: Material(
+                      elevation: 2,
+                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.selectedBackground,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.touch_app,
+                              color: AppColors.primary,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Tap the map to place your report',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 2,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: _cancelReportTapMode,
+                              child: const Icon(
+                                Icons.close,
+                                size: 18,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                if (destination == null && !reportTapMode)
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Search a destination to get started',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                  ),
+                if (heatmapOn)
+                  Positioned(
+                    right: 12,
+                    bottom: 12,
+                    child: HeatmapLegend(
+                      overlay: heatmapOverlay ?? HeatmapOverlay.accessibility,
+                    ),
+                  ),
+                Positioned(
+                  left: 12,
+                  bottom: heatmapOn ? 72 : 12,
+                  child: _HeatmapModeToggle(
+                    activeOverlay: heatmapOverlay,
+                    onSelect: (overlay) {
+                      ref.read(heatmapOverlayProvider.notifier).state = overlay;
+                    },
+                  ),
+                ),
+                if (_locationLoading)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Locating…',
+                            style: GoogleFonts.poppins(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ],
         ),
       ),
     );

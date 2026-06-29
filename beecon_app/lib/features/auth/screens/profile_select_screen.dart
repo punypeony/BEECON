@@ -1,6 +1,7 @@
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
+import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -37,47 +38,51 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              const BeeconBrandHeader(
-                subtitle: 'Choose your mobility profile',
-              ),
-              const SizedBox(height: 28),
-              Expanded(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Text(
-                      '🐝',
-                      style: TextStyle(
-                        fontSize: 200,
-                        color: AppColors.primary.withValues(alpha: 0.05),
-                      ),
-                    ),
-                    GridView.builder(
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 1.1,
-                      ),
-                      itemCount: _profiles.length,
-                      itemBuilder: (context, index) {
-                        final profile = _profiles[index];
-                        return _ProfileCard(
-                          profile: profile,
-                          isSelected: _selectedLabel == profile.label,
-                          onTap: () =>
-                              setState(() => _selectedLabel = profile.label),
-                        );
-                      },
-                    ),
-                  ],
+        child: ResponsivePageContent(
+          maxWidth: 900,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Column(
+              children: [
+                const BeeconBrandHeader(
+                  subtitle: 'Choose your mobility profile',
                 ),
-              ),
+                const SizedBox(height: 28),
+                Expanded(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Opacity(
+                        opacity: 0.05,
+                        child: Image.asset(
+                          AppConstants.logoPath,
+                          height: 240,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      GridView.builder(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount:
+                              ResponsiveLayout.profileGridColumns(context),
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio:
+                              ResponsiveLayout.isDesktop(context) ? 1.35 : 1.1,
+                        ),
+                        itemCount: _profiles.length,
+                        itemBuilder: (context, index) {
+                          final profile = _profiles[index];
+                          return _ProfileCard(
+                            profile: profile,
+                            isSelected: _selectedLabel == profile.label,
+                            onTap: () =>
+                                setState(() => _selectedLabel = profile.label),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -93,6 +98,7 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:beecon_app/core/constants/app_constants.dart';
 import 'package:beecon_app/core/widgets/beecon_branding.dart';
+import 'package:beecon_app/core/widgets/responsive_layout.dart';
 import 'package:beecon_app/core/theme/app_theme.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -37,8 +38,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         logoHeader: BeeconLogoHeader(title: 'My Profile'),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+        child: ResponsivePageContent(
+          maxWidth: ResponsiveLayout.formMaxWidth,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
